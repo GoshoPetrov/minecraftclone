@@ -10,6 +10,8 @@ describe('config', () => {
     expect(config.skyColor).toBeLessThanOrEqual(0xffffff);
     expect(config.camera.fovDegrees).toBeGreaterThan(0);
     expect(config.camera.fovDegrees).toBeLessThan(180);
+    expect(config.camera.eyeHeight).toBeGreaterThan(0);
+    expect(config.camera.eyeHeight).toBeLessThan(config.player.height);
     expect(config.maxPixelRatio).toBeGreaterThanOrEqual(1);
   });
 
@@ -27,6 +29,23 @@ describe('config', () => {
         rendering.sunDirection.z,
       ),
     ).toBeGreaterThan(0);
+  });
+
+  it('exposes valid player physics constants', () => {
+    const player = config.player;
+
+    expect(player.width).toBeGreaterThan(0);
+    expect(player.height).toBeGreaterThan(0);
+    expect(player.moveSpeed).toBeGreaterThan(0);
+    expect(player.gravity).toBeGreaterThan(0);
+    expect(player.jumpVelocity).toBeGreaterThan(0);
+    expect(player.maxFallSpeed).toBeGreaterThan(0);
+    expect(player.physicsStepSeconds).toBeGreaterThan(0);
+    expect(player.physicsStepSeconds).toBeLessThanOrEqual(config.maxFrameDeltaSeconds);
+    // A sub-step can never move further than the collision box, so a solid
+    // block cannot be skipped between two positions.
+    expect(player.maxFallSpeed * player.physicsStepSeconds).toBeLessThan(player.height);
+    expect(player.maxFallSpeed * player.physicsStepSeconds).toBeLessThan(player.width);
   });
 
   it('exposes valid deterministic generation parameters', () => {

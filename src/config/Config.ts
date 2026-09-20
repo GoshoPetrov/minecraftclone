@@ -19,6 +19,37 @@ export const config = {
     fovDegrees: 75,
     near: 0.1,
     far: 1000,
+    /** Camera height above the player's feet, in blocks. */
+    eyeHeight: 1.62,
+  },
+
+  /**
+   * Player physics constants. Movement, gravity, jumping, and the collision
+   * box all read from here, so tuning the feel of the player never requires
+   * editing the physics implementation.
+   */
+  player: {
+    /** Collision box width, used for both the x and z axes, in blocks. */
+    width: 0.6,
+    /** Collision box height, from the feet upwards, in blocks. */
+    height: 1.8,
+    /** Horizontal movement speed in blocks per second. */
+    moveSpeed: 4.317,
+    /** Downward acceleration in blocks per second squared. */
+    gravity: 28,
+    /** Upward velocity applied by a jump, in blocks per second. */
+    jumpVelocity: 8.5,
+    /**
+     * Terminal falling speed in blocks per second. Bounds how far a single
+     * sub-step can move, so a very long fall cannot outrun collision checks.
+     */
+    maxFallSpeed: 60,
+    /**
+     * Longest simulation slice for one physics sub-step, in seconds. A frame
+     * is split into slices no longer than this so a large delta cannot move
+     * the player through a block in one jump.
+     */
+    physicsStepSeconds: 0.005,
   },
 
   /**
