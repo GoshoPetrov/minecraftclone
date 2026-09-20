@@ -4,7 +4,7 @@
 
 **Blocked by:** 03 — World and chunk representation.
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] A pure `step(state, intent, world, dt) → state` owns position, velocity, AABB bounds, grounded state, and movement state, with no Three.js or camera dependency.
 - [ ] Collision is resolved axis-by-axis (X, then Y, then Z) so sliding along walls, landing on ground, and hitting ceilings all resolve correctly.
