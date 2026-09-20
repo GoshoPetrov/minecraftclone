@@ -13,6 +13,22 @@ describe('config', () => {
     expect(config.maxPixelRatio).toBeGreaterThanOrEqual(1);
   });
 
+  it('exposes a valid rendering budget and lighting setup', () => {
+    const rendering = config.rendering;
+
+    expect(Number.isInteger(rendering.chunkRebuildBudgetPerFrame)).toBe(true);
+    expect(rendering.chunkRebuildBudgetPerFrame).toBeGreaterThanOrEqual(1);
+    expect(rendering.ambientLightIntensity).toBeGreaterThan(0);
+    expect(rendering.directionalLightIntensity).toBeGreaterThan(0);
+    expect(
+      Math.hypot(
+        rendering.sunDirection.x,
+        rendering.sunDirection.y,
+        rendering.sunDirection.z,
+      ),
+    ).toBeGreaterThan(0);
+  });
+
   it('exposes valid deterministic generation parameters', () => {
     const generation = config.generation;
 

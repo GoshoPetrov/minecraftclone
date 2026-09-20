@@ -21,6 +21,27 @@ export const config = {
     far: 1000,
   },
 
+  /**
+   * Rendering tuning: how much geometry is uploaded per frame and how the
+   * scene is lit. Kept here so visual tuning never reaches into a system.
+   */
+  rendering: {
+    /**
+     * Maximum number of dirty chunk meshes rebuilt in one frame. A burst of
+     * block edits is spread over several frames instead of stalling one.
+     */
+    chunkRebuildBudgetPerFrame: 2,
+    /** Strength of the uniform fill light, so no face is ever black. */
+    ambientLightIntensity: 0.65,
+    /**
+     * Strength of the sun. Directional shading is what makes the edges of
+     * same-coloured cubes readable against each other.
+     */
+    directionalLightIntensity: 1.1,
+    /** World-space direction the sunlight arrives from. */
+    sunDirection: { x: 0.6, y: 1, z: 0.4 },
+  },
+
   /** Cap on the device pixel ratio used for the drawing buffer. */
   maxPixelRatio: 2,
 

@@ -1,5 +1,9 @@
 import { GameLoop } from './GameLoop';
 import { config } from '../config/Config';
+import { createDefaultBlockRegistry } from '../world/BlockRegistry';
+import { World } from '../world/World';
+import { HeightmapWorldGenerator } from '../world/WorldGenerator';
+import type { BlockSampler } from '../rendering/ChunkMeshBuilder';
 import { WorldRenderer } from '../rendering/WorldRenderer';
 
 export interface GameOptions {
@@ -16,7 +20,15 @@ export class Game {
   private readonly loop: GameLoop;
 
   constructor(options: GameOptions) {
-    this.renderer = new WorldRenderer(options.canvas);
+    const registry = createDefaultBlockRegistry();
+    const world = new World({ sizeInChunks: config.world.sizeInChunks }, registry);
+    new HeightmapWorldGenerator(config.generation).generate(world);
+
+    // The renderer reads block types through the world, so the world stays
+    // the authority on which blocks exist and which geometry is dirty.
+    const blockAt: BlockSampler = (x, y, z) => registry.get(world.getBlock(x, y, z));
+
+    this.renderer = new WorldRenderer(options.canvas, world, blockAt);
     this.loop = new GameLoop(
       {
         update: (deltaSeconds) => {
@@ -71,5 +83,7 @@ export class Game {
 
   private applyActions(): void {}
 
-  private flushDirtyMeshes(): void {}
+  private flushDirtyMeshes(): void {
+    this.renderer.flushDirtyChunks(config.rendering.chunkRebuildBudgetPerFrame);
+  }
 }
