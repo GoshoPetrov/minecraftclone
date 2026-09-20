@@ -8,8 +8,13 @@ if (canvas === null) {
 }
 
 const overlay = document.querySelector<HTMLElement>('#play-overlay');
+const notices = document.querySelector<HTMLElement>('#notices');
 
-const game = new Game({ canvas, ...(overlay === null ? {} : { overlay }) });
+const game = await Game.create({
+  canvas,
+  ...(overlay === null ? {} : { overlay }),
+  ...(notices === null ? {} : { notices }),
+});
 game.start();
 
 // Stop the loop when the page is being unloaded so the loop cannot outlive

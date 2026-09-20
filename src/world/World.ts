@@ -22,6 +22,27 @@ export interface WorldSize {
 }
 
 /**
+ * A single player edit, expressed as a delta from the generated terrain.
+ * `id` is the block that now occupies the coordinate; removals use air.
+ * Only the current value is persisted, never the block that was replaced.
+ */
+export interface BlockModification {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  readonly id: number;
+}
+
+/** A tracked edit while it is being coalesced: generated value plus current value. */
+interface TrackedEdit {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  readonly baseline: number;
+  readonly id: number;
+}
+
+/**
  * World dimensions, expressed as a count of chunks per axis. Chunk size is
  * fixed, so this is the one place a world's extent is declared. Nothing else
  * in the codebase should assume a particular world size.
@@ -52,6 +73,8 @@ export class World {
   private readonly registry: BlockRegistry;
   private readonly chunksByKey = new Map<string, Chunk>();
   private readonly dirtyChunkKeys = new Set<string>();
+  private readonly editsByKey = new Map<string, TrackedEdit>();
+  private trackingEdits = false;
 
   constructor(config: WorldConfig, registry: BlockRegistry) {
     assertPositiveInteger(config.sizeInChunks.x, 'World size in chunks (x)');
@@ -120,8 +143,12 @@ export class World {
       return false;
     }
     const local = blockToLocalCoord(x, y, z);
+    const previous = chunk.getBlock(local.x, local.y, local.z);
     if (!chunk.setBlock(local.x, local.y, local.z, id)) {
       return false;
+    }
+    if (this.trackingEdits && previous !== id) {
+      this.recordEdit(x, y, z, previous, id);
     }
     this.markDirty(x, y, z);
     return true;
@@ -150,6 +177,47 @@ export class World {
   /** Iterate every loaded chunk. */
   chunks(): IterableIterator<Chunk> {
     return this.chunksByKey.values();
+  }
+
+  /**
+   * Start recording player edits as deltas from the terrain already in the
+   * world. Generation writes before this call are the baseline and are never
+   * recorded, so only player modifications are captured. Safe to call more
+   * than once; later calls are ignored.
+   */
+  beginTrackingEdits(): void {
+    this.trackingEdits = true;
+  }
+
+  /**
+   * The player modifications that distinguish the world from its generated
+   * terrain, ordered by coordinate for a stable save. A coordinate edited
+   * back to its generated value is omitted, so the set only grows with net
+   * edits. Before `beginTrackingEdits` this is always empty.
+   */
+  modifications(): readonly BlockModification[] {
+    const modifications: BlockModification[] = [];
+    for (const edit of this.editsByKey.values()) {
+      modifications.push({ x: edit.x, y: edit.y, z: edit.z, id: edit.id });
+    }
+    modifications.sort((a, b) => a.x - b.x || a.y - b.y || a.z - b.z);
+    return modifications;
+  }
+
+  /**
+   * Fold one tracked write into the delta set. The first write to a
+   * coordinate captures the generated value as the baseline; a later write
+   * that returns the block to that baseline drops the entry entirely.
+   */
+  private recordEdit(x: number, y: number, z: number, previous: number, id: number): void {
+    const key = `${x},${y},${z}`;
+    const existing = this.editsByKey.get(key);
+    const baseline = existing === undefined ? previous : existing.baseline;
+    if (id === baseline) {
+      this.editsByKey.delete(key);
+      return;
+    }
+    this.editsByKey.set(key, { x, y, z, baseline, id });
   }
 
   /**

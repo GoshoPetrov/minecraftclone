@@ -1,8 +1,7 @@
 import { GameLoop } from './GameLoop';
 import { config } from '../config/Config';
-import { createDefaultBlockRegistry } from '../world/BlockRegistry';
-import { World } from '../world/World';
-import { HeightmapWorldGenerator } from '../world/WorldGenerator';
+import { createDefaultBlockRegistry, type BlockRegistry } from '../world/BlockRegistry';
+import type { World } from '../world/World';
 import type { BlockSampler } from '../rendering/ChunkMeshBuilder';
 import { WorldRenderer } from '../rendering/WorldRenderer';
 import { InputManager, type MouseButton, type MouseDelta } from '../input/InputManager';
@@ -20,11 +19,21 @@ import { raycastBlock, type BlockHit } from '../interaction/BlockRaycaster';
 import { BlockInteractor } from '../interaction/BlockInteractor';
 import type { BlockType } from '../world/BlockType';
 import { PlayOverlay } from '../ui/PlayOverlay';
+import { worldMetadataFrom } from '../persistence/SaveData';
+import {
+  loadWorld,
+  type PersistenceObserver,
+  type WorldPersistence,
+} from '../persistence/WorldPersistence';
+import { createBrowserWorldRepository } from '../persistence/RepositoryFactory';
+import { NoticeOverlay } from '../ui/Notices';
 
 export interface GameOptions {
   readonly canvas: HTMLCanvasElement;
   /** Click-to-play overlay element; optional so the game can run headless. */
   readonly overlay?: HTMLElement;
+  /** Container for non-fatal persistence notices; optional. */
+  readonly notices?: HTMLElement;
 }
 
 /**
@@ -41,6 +50,7 @@ export class Game {
   private readonly world: World;
   private readonly interactor: BlockInteractor;
   private readonly placeableBlock: BlockType;
+  private readonly persistence: WorldPersistence;
 
   private playerState: PlayerState;
   private mouseDelta: MouseDelta = { dx: 0, dy: 0 };
@@ -49,11 +59,49 @@ export class Game {
   private pointerLocked = false;
   private target: BlockHit | null = null;
 
-  constructor(options: GameOptions) {
+  /**
+   * Load the saved world (or start a fresh one), then build the game around
+   * it. This is async because persistence is async; nothing in the game loop
+   * ever waits on storage.
+   */
+  static async create(options: GameOptions): Promise<Game> {
     const registry = createDefaultBlockRegistry();
-    const world = new World({ sizeInChunks: config.world.sizeInChunks }, registry);
-    new HeightmapWorldGenerator(config.generation).generate(world);
+    const noticeOverlay =
+      options.notices === undefined ? null : new NoticeOverlay(options.notices);
+    const observer: PersistenceObserver = {
+      notify: (message) => {
+        noticeOverlay?.show(message.message, {
+          level: message.level,
+          dismissible: message.dismissible,
+          persistent: message.persistent,
+        });
+      },
+    };
+
+    const { repository, storageAvailable } = createBrowserWorldRepository();
+    const loaded = await loadWorld({
+      repository,
+      registry,
+      fallbackMetadata: worldMetadataFrom(config.world.sizeInChunks, config.generation),
+      debounceMs: config.persistence.saveDebounceMs,
+      storageAvailable,
+      observer,
+    });
+    for (const message of loaded.messages) {
+      observer.notify(message);
+    }
+
+    return new Game(options, registry, loaded.world, loaded.persistence);
+  }
+
+  private constructor(
+    options: GameOptions,
+    registry: BlockRegistry,
+    world: World,
+    persistence: WorldPersistence,
+  ) {
     this.world = world;
+    this.persistence = persistence;
 
     // The renderer reads block types through the world, so the world stays
     // the authority on which blocks exist and which geometry is dirty.
@@ -80,11 +128,32 @@ export class Game {
     );
   }
 
+  /**
+   * Best-effort save triggers while the page is going away. A hidden tab can
+   * be discarded without another frame, so this is the last chance to persist
+   * a pending edit without blocking the game loop.
+   */
+  private readonly onPageHide = (): void => {
+    void this.persistence.flush().catch(() => undefined);
+  };
+
+  private readonly onVisibilityChange = (): void => {
+    if (document.visibilityState === 'hidden') {
+      void this.persistence.flush().catch(() => undefined);
+    }
+  };
+
   start(): void {
+    window.addEventListener('pagehide', this.onPageHide);
+    document.addEventListener('visibilitychange', this.onVisibilityChange);
     this.loop.start();
   }
 
   stop(): void {
+    window.removeEventListener('pagehide', this.onPageHide);
+    document.removeEventListener('visibilitychange', this.onVisibilityChange);
+    void this.persistence.flush().catch(() => undefined);
+    this.persistence.dispose();
     this.loop.stop();
     this.input.dispose();
     this.renderer.dispose();
@@ -192,15 +261,19 @@ export class Game {
 
     const range = config.interaction.range;
     for (const press of presses) {
-      if (press === 'left') {
-        this.interactor.breakBlock(this.target, range);
-      } else {
-        this.interactor.placeBlock(
-          this.target,
-          playerAabb(this.playerState.position),
-          this.placeableBlock,
-          range,
-        );
+      const changed =
+        press === 'left'
+          ? this.interactor.breakBlock(this.target, range)
+          : this.interactor.placeBlock(
+              this.target,
+              playerAabb(this.playerState.position),
+              this.placeableBlock,
+              range,
+            );
+      if (changed) {
+        // Persistence is scheduled, never awaited: storage never blocks a
+        // frame, and a failed write cannot change the world.
+        this.persistence.markDirty();
       }
     }
   }

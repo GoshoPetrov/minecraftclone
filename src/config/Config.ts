@@ -120,6 +120,18 @@ export const config = {
   maxPixelRatio: 2,
 
   /**
+   * World persistence tuning. The schema version lives with the save shape in
+   * `persistence/SaveData`; only runtime cadence is configured here.
+   */
+  persistence: {
+    /**
+     * How long an edit waits before it is written, in milliseconds. Rapid
+     * edits within this window collapse into a single save.
+     */
+    saveDebounceMs: 500,
+  },
+
+  /**
    * World extent in chunks. This is the single place the world size is
    * declared; every system receives it from the `World` rather than
    * hard-coding a size.

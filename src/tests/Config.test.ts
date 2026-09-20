@@ -69,6 +69,11 @@ describe('config', () => {
     ).toBe(true);
   });
 
+  it('exposes a positive save debounce interval', () => {
+    expect(Number.isFinite(config.persistence.saveDebounceMs)).toBe(true);
+    expect(config.persistence.saveDebounceMs).toBeGreaterThan(0);
+  });
+
   it('exposes valid deterministic generation parameters', () => {
     const generation = config.generation;
 
