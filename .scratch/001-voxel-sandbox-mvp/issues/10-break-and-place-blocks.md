@@ -4,7 +4,7 @@
 
 **Blocked by:** 09 — Block raycast and target highlight.
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] Left click breaks the targeted block, removing it from world data and updating visible geometry; one press produces exactly one action.
 - [ ] The unbreakable floor cannot be broken, and breaking is rejected for out-of-range or missing targets.
