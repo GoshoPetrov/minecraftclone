@@ -137,7 +137,7 @@ export const config = {
    * hard-coding a size.
    */
   world: {
-    sizeInChunks: { x: 2, y: 1, z: 2 },
+    sizeInChunks: { x: 8, y: 1, z: 8 },
   },
 
   /**

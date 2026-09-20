@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { config } from '../config/Config';
 import { createDefaultBlockRegistry } from '../world/BlockRegistry';
-import { CHUNK_SIZE_Y } from '../world/Chunk';
+import { CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z } from '../world/Chunk';
 
 describe('config', () => {
   it('exposes a single source of tuning constants', () => {
@@ -72,6 +72,14 @@ describe('config', () => {
   it('exposes a positive save debounce interval', () => {
     expect(Number.isFinite(config.persistence.saveDebounceMs)).toBe(true);
     expect(config.persistence.saveDebounceMs).toBeGreaterThan(0);
+  });
+
+  it('locks the default world extent at 128 × 128 blocks and one chunk tall', () => {
+    const { sizeInChunks } = config.world;
+
+    expect(sizeInChunks.x * CHUNK_SIZE_X).toBe(128);
+    expect(sizeInChunks.z * CHUNK_SIZE_Z).toBe(128);
+    expect(sizeInChunks.y).toBe(1);
   });
 
   it('exposes valid deterministic generation parameters', () => {
