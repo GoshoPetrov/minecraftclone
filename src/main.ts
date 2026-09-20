@@ -7,7 +7,9 @@ if (canvas === null) {
   throw new Error('Game canvas element was not found in the document.');
 }
 
-const game = new Game({ canvas });
+const overlay = document.querySelector<HTMLElement>('#play-overlay');
+
+const game = new Game({ canvas, ...(overlay === null ? {} : { overlay }) });
 game.start();
 
 // Stop the loop when the page is being unloaded so the loop cannot outlive

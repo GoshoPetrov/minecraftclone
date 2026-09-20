@@ -21,6 +21,13 @@ export const config = {
     far: 1000,
     /** Camera height above the player's feet, in blocks. */
     eyeHeight: 1.62,
+    /** Look sensitivity, in radians of rotation per pixel of mouse motion. */
+    lookSensitivity: 0.0022,
+    /**
+     * Maximum upward or downward pitch, in radians. Just short of vertical so
+     * the view can never flip over the top or bottom.
+     */
+    maxPitchRadians: Math.PI / 2 - 0.01,
   },
 
   /**
@@ -50,6 +57,22 @@ export const config = {
      * the player through a block in one jump.
      */
     physicsStepSeconds: 0.005,
+    /** Whole air blocks required above the feet for a spawn to be valid. */
+    spawnHeadroomBlocks: 2,
+  },
+
+  /**
+   * Physical key codes (`KeyboardEvent.code`) bound to game actions. Binding
+   * by physical position keeps controls usable on non-QWERTY layouts.
+   */
+  input: {
+    bindings: {
+      forward: 'KeyW',
+      backward: 'KeyS',
+      left: 'KeyA',
+      right: 'KeyD',
+      jump: 'Space',
+    },
   },
 
   /**

@@ -48,6 +48,18 @@ describe('config', () => {
     expect(player.maxFallSpeed * player.physicsStepSeconds).toBeLessThan(player.width);
   });
 
+  it('exposes valid camera look and input binding constants', () => {
+    expect(config.camera.lookSensitivity).toBeGreaterThan(0);
+    expect(config.camera.maxPitchRadians).toBeGreaterThan(0);
+    expect(config.camera.maxPitchRadians).toBeLessThan(Math.PI / 2);
+
+    const bindings = config.input.bindings;
+    const codes = Object.values(bindings);
+    expect(codes.every((code) => code.length > 0)).toBe(true);
+    expect(new Set(codes).size).toBe(codes.length);
+    expect(config.player.spawnHeadroomBlocks).toBeGreaterThanOrEqual(1);
+  });
+
   it('exposes valid deterministic generation parameters', () => {
     const generation = config.generation;
 
