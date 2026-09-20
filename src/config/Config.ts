@@ -62,6 +62,19 @@ export const config = {
   },
 
   /**
+   * Block interaction tuning. The reach and, later, the default block to
+   * place live here so targeting and editing share one source of truth.
+   */
+  interaction: {
+    /**
+     * Maximum distance from the camera eye to a targeted block, in blocks.
+     * A ray stops here, so blocks beyond this reach cannot be targeted or
+     * edited.
+     */
+    range: 5,
+  },
+
+  /**
    * Physical key codes (`KeyboardEvent.code`) bound to game actions. Binding
    * by physical position keeps controls usable on non-QWERTY layouts.
    */

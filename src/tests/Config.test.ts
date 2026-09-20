@@ -60,6 +60,11 @@ describe('config', () => {
     expect(config.player.spawnHeadroomBlocks).toBeGreaterThanOrEqual(1);
   });
 
+  it('exposes a positive interaction range', () => {
+    expect(config.interaction.range).toBeGreaterThan(0);
+    expect(Number.isFinite(config.interaction.range)).toBe(true);
+  });
+
   it('exposes valid deterministic generation parameters', () => {
     const generation = config.generation;
 

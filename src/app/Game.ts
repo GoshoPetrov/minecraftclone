@@ -7,9 +7,10 @@ import type { BlockSampler } from '../rendering/ChunkMeshBuilder';
 import { WorldRenderer } from '../rendering/WorldRenderer';
 import { InputManager, type MouseDelta } from '../input/InputManager';
 import { PlayerController, idleMovementInput, type MovementInput } from '../player/PlayerController';
-import { createPlayerState, idleIntent, type PlayerState } from '../player/Player';
+import { createPlayerState, idleIntent, type PlayerState, type Vec3 } from '../player/Player';
 import { step } from '../player/PlayerPhysics';
 import { findSpawn } from '../player/Spawn';
+import { raycastBlock, type BlockHit } from '../interaction/BlockRaycaster';
 import { PlayOverlay } from '../ui/PlayOverlay';
 
 export interface GameOptions {
@@ -35,6 +36,7 @@ export class Game {
   private mouseDelta: MouseDelta = { dx: 0, dy: 0 };
   private movementInput: MovementInput = idleMovementInput();
   private pointerLocked = false;
+  private target: BlockHit | null = null;
 
   constructor(options: GameOptions) {
     const registry = createDefaultBlockRegistry();
@@ -141,7 +143,25 @@ export class Game {
     this.playerState = step(this.playerState, intent, this.world, deltaSeconds);
   }
 
-  private updateTargeting(): void {}
+  /**
+   * Cast from the camera eye along the view direction and hand the result to
+   * the renderer. The result is cached only for the following action stages;
+   * it is derived view state and is never written to the world.
+   */
+  private updateTargeting(): void {
+    const eye: Vec3 = {
+      x: this.playerState.position.x,
+      y: this.playerState.position.y + config.camera.eyeHeight,
+      z: this.playerState.position.z,
+    };
+    this.target = raycastBlock(
+      this.world,
+      eye,
+      this.controller.lookDirection,
+      config.interaction.range,
+    );
+    this.renderer.setTarget(this.target);
+  }
 
   private applyActions(): void {}
 

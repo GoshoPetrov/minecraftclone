@@ -19,6 +19,44 @@ body {
 }
 
 /*
+ * Crosshair marking the screen centre, which is the raycast aim point. Pure
+ * CSS so it costs no render pass and stays crisp at any pixel ratio.
+ */
+#crosshair {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 18px;
+  height: 18px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+#crosshair::before,
+#crosshair::after {
+  content: '';
+  position: absolute;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 1px rgba(0, 0, 0, 0.9);
+}
+
+#crosshair::before {
+  top: 50%;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  transform: translateY(-50%);
+}
+
+#crosshair::after {
+  top: 0;
+  left: 50%;
+  width: 2px;
+  height: 100%;
+  transform: translateX(-50%);
+}
+
+/*
  * Click-to-play overlay. `pointer-events: none` lets clicks fall through to
  * the canvas underneath, which is what requests pointer lock.
  */

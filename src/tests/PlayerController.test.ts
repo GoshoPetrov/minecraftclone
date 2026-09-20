@@ -127,3 +127,45 @@ describe('PlayerController movement intent', () => {
     expect(intent.move.z).toBeCloseTo(0, 9);
   });
 });
+
+describe('PlayerController look direction', () => {
+  it('looks down -Z when facing straight ahead', () => {
+    const controller = new PlayerController();
+
+    const dir = controller.lookDirection;
+
+    expect(dir.x).toBeCloseTo(0, 9);
+    expect(dir.y).toBeCloseTo(0, 9);
+    expect(dir.z).toBeCloseTo(-1, 9);
+  });
+
+  it('turns toward +X on a right quarter turn', () => {
+    const controller = new PlayerController();
+    controller.applyLook({ dx: pixelsFor(Math.PI / 2), dy: 0 });
+
+    const dir = controller.lookDirection;
+
+    expect(dir.x).toBeCloseTo(1, 9);
+    expect(dir.z).toBeCloseTo(0, 9);
+  });
+
+  it('tilts upward with positive pitch', () => {
+    const controller = new PlayerController();
+    controller.applyLook({ dx: 0, dy: -pixelsFor(Math.PI / 4) });
+
+    const dir = controller.lookDirection;
+
+    expect(dir.x).toBeCloseTo(0, 9);
+    expect(dir.y).toBeCloseTo(Math.SQRT1_2, 9);
+    expect(dir.z).toBeCloseTo(-Math.SQRT1_2, 9);
+  });
+
+  it('is always a unit vector', () => {
+    const controller = new PlayerController();
+    controller.applyLook({ dx: pixelsFor(1.1), dy: -pixelsFor(0.4) });
+
+    const dir = controller.lookDirection;
+
+    expect(Math.hypot(dir.x, dir.y, dir.z)).toBeCloseTo(1, 9);
+  });
+});

@@ -1,5 +1,5 @@
 import { config } from '../config/Config';
-import type { PlayerIntent } from './Player';
+import type { PlayerIntent, Vec3 } from './Player';
 
 /** Buttons the player is holding, in intent space rather than key codes. */
 export interface MovementInput {
@@ -42,6 +42,21 @@ export class PlayerController {
   /** The current camera angles. */
   get orientation(): CameraOrientation {
     return { yaw: this.yaw, pitch: this.pitch };
+  }
+
+  /**
+   * The unit vector the camera looks along, derived from yaw and pitch the
+   * same way `PlayerCamera` orients the view. Raycasting and any other system
+   * that needs the aim direction read it here rather than recomputing the
+   * trigonometry independently.
+   */
+  get lookDirection(): Vec3 {
+    const cosPitch = Math.cos(this.pitch);
+    return {
+      x: -Math.sin(this.yaw) * cosPitch,
+      y: Math.sin(this.pitch),
+      z: -Math.cos(this.yaw) * cosPitch,
+    };
   }
 
   /**

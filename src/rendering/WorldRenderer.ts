@@ -3,7 +3,9 @@ import * as THREE from 'three';
 import { config } from '../config/Config';
 import type { World } from '../world/World';
 import type { Vec3 } from '../player/Player';
+import type { BlockHit } from '../interaction/BlockRaycaster';
 import type { BlockSampler } from './ChunkMeshBuilder';
+import { BlockHighlight } from './BlockHighlight';
 import { ChunkMeshManager } from './ChunkMeshManager';
 import { PlayerCamera } from './PlayerCamera';
 
@@ -22,6 +24,7 @@ export class WorldRenderer {
   private readonly playerCamera: PlayerCamera;
   private readonly resizeObserver: ResizeObserver;
   private readonly chunkMeshes: ChunkMeshManager;
+  private readonly blockHighlight: BlockHighlight;
 
   constructor(canvas: HTMLCanvasElement, world: World, blockAt: BlockSampler) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -34,6 +37,12 @@ export class WorldRenderer {
 
     this.chunkMeshes = new ChunkMeshManager(world, blockAt);
     this.scene.add(this.chunkMeshes.group);
+
+    // The highlight is view-only state, so it lives in the scene but never in
+    // the world; `setTarget` repositions it each frame from the raycast.
+    this.blockHighlight = new BlockHighlight();
+    this.scene.add(this.blockHighlight.object3d);
+
     this.addLights();
 
     this.resizeObserver = new ResizeObserver(() => {
@@ -60,6 +69,14 @@ export class WorldRenderer {
   }
 
   /**
+   * Outline the block the player is aiming at, or hide the outline when the
+   * raycast found nothing. Called once per frame after targeting.
+   */
+  setTarget(hit: BlockHit | null): void {
+    this.blockHighlight.setTarget(hit);
+  }
+
+  /**
    * Match the drawing buffer and camera aspect to the canvas's CSS size.
    * Uses the element's own CSS dimensions so the view never distorts.
    */
@@ -77,6 +94,7 @@ export class WorldRenderer {
 
   dispose(): void {
     this.resizeObserver.disconnect();
+    this.blockHighlight.dispose();
     this.chunkMeshes.dispose();
     this.renderer.dispose();
   }
