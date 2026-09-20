@@ -4,7 +4,7 @@
 
 **Blocked by:** 03 — World and chunk representation.
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] A pure `buildChunkMesh(chunk, blockAt)` produces `ChunkMeshData` containing only plain `positions`, `normals`, `colors`, and `indices` typed arrays — no Three.js types cross the seam.
 - [ ] A face is emitted only when the neighbouring cell is non-solid; internal faces between two solid blocks are culled.
