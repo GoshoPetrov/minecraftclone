@@ -32,4 +32,18 @@ export const config = {
   world: {
     sizeInChunks: { x: 2, y: 1, z: 2 },
   },
+
+  /**
+   * Deterministic terrain parameters. Together with the world dimensions
+   * these are the only inputs to world generation, so a stored seed plus
+   * version reconstructs the same terrain.
+   */
+  generation: {
+    seed: 1337,
+    generatorVersion: 1,
+    baseSurfaceHeight: 24,
+    amplitude: 3,
+    bedrockLayers: 1,
+    featureSize: 8,
+  },
 } as const;
