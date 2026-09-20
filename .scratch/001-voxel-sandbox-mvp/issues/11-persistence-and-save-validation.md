@@ -4,7 +4,7 @@
 
 **Blocked by:** 10 — Break and place blocks.
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] Saved data contains a schema version, seed, generator version, world parameters, and a list of modifications (removals stored as air) — and never meshes, materials, camera, renderer, or GPU state.
 - [ ] The original generated terrain is reconstructed by the generator and only player modifications are stored, so saves grow only with edits.
