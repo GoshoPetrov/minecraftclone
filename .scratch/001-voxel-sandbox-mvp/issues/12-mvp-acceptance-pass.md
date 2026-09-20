@@ -4,7 +4,7 @@
 
 **Blocked by:** 11 — Persistence and save validation.
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] A concise control hint is visible so a new player knows how to play.
 - [ ] Save/recovery/storage notices are shown in-game, are non-fatal, and do not interrupt play.
