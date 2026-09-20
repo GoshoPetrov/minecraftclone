@@ -23,4 +23,13 @@ export const config = {
 
   /** Cap on the device pixel ratio used for the drawing buffer. */
   maxPixelRatio: 2,
+
+  /**
+   * World extent in chunks. This is the single place the world size is
+   * declared; every system receives it from the `World` rather than
+   * hard-coding a size.
+   */
+  world: {
+    sizeInChunks: { x: 2, y: 1, z: 2 },
+  },
 } as const;
