@@ -93,6 +93,12 @@ The structure may evolve as the project grows, but keep responsibilities separat
 
 Do not put application logic directly into rendering classes unless it is specifically rendering-related.
 
+### Architecture Reference
+
+Before modifying application behavior, read `ARCHITECTURE.md`. It is the compact, source-verified map of the current architecture, extension points, lifecycle, and feature-to-file locations.
+
+Keep `ARCHITECTURE.md` updated after major architectural or feature changes.
+
 ---
 
 ## Development Commands
