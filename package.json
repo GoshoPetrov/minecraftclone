@@ -4,7 +4,7 @@
   "type": "module",
   "description": "project foundry",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "test": "vitest run",

@@ -4,7 +4,7 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] Vite, Three.js, Vitest and strict TypeScript are wired in, with the `AGENTS.md` scripts (`dev`, `build`, `preview`, `test`, `test:watch`, `typecheck`) present and passing.
 - [ ] Strict type checking is enabled and no `any` is used.
