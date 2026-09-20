@@ -4,7 +4,7 @@
 
 **Blocked by:** 06 — Render the world; 07 — Player physics.
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] Clicking the canvas captures the mouse; the cursor is locked while playing; `Escape` releases it; the context menu is suppressed on the game view.
 - [ ] Mouse movement rotates the view, with unlimited horizontal rotation and vertical look clamped so the camera never flips.
