@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 — Block model and registry.
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] Blocks are stored per chunk in flat typed arrays; chunks are addressed by chunk coordinate with a single derived key.
 - [ ] The world exposes block get/set/remove, a solidity query, a bounds query, chunk access by chunk coordinate, and dirty marking.

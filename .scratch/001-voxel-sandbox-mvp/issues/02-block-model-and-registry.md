@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 — Project scaffold and render loop.
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] `BlockType` carries `id`, `name`, `solid`, `breakable`, and a typed `material` descriptor.
 - [ ] Air is a real block type and is non-solid, so block queries never return a null/optional.
