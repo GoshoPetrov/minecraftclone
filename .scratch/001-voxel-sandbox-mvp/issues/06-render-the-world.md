@@ -4,7 +4,7 @@
 
 **Blocked by:** 04 — Deterministic world generation; 05 — Chunk mesh building and face culling.
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] Blocks render as solid voxel cubes with distinct per-type colours and lighting that keeps edges readable.
 - [ ] The world fills a simple sky-coloured background and reads clearly against it.
