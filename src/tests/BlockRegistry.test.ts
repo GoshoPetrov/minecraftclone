@@ -25,6 +25,7 @@ describe('BlockRegistry', () => {
     expect(air).toBe(AIR);
     expect(air.solid).toBe(false);
     expect(air.breakable).toBe(false);
+    expect(air.placeable).toBe(false);
   });
 
   it('treats basic_block as solid and breakable', () => {
@@ -33,6 +34,7 @@ describe('BlockRegistry', () => {
     expect(basic.name).toBe('basic_block');
     expect(basic.solid).toBe(true);
     expect(basic.breakable).toBe(true);
+    expect(basic.placeable).toBe(true);
   });
 
   it('treats bedrock as solid and unbreakable', () => {
@@ -41,6 +43,7 @@ describe('BlockRegistry', () => {
     expect(bedrock.name).toBe('bedrock');
     expect(bedrock.solid).toBe(true);
     expect(bedrock.breakable).toBe(false);
+    expect(bedrock.placeable).toBe(false);
   });
 
   it('resolves unknown ids to air without throwing', () => {
@@ -74,6 +77,11 @@ describe('BlockRegistry', () => {
 
     expect(registry.isBreakable(BlockIds.basic)).toBe(true);
     expect(registry.isBreakable(BlockIds.bedrock)).toBe(false);
+
+    expect(registry.isPlaceable(BlockIds.basic)).toBe(true);
+    expect(registry.isPlaceable(BlockIds.bedrock)).toBe(false);
+    expect(registry.isPlaceable(BlockIds.air)).toBe(false);
+    expect(registry.isPlaceable(999)).toBe(false);
   });
 
   it('describes materials with a typed, extensible descriptor', () => {
@@ -92,6 +100,7 @@ describe('BlockRegistry', () => {
       name: 'glass',
       solid: true,
       breakable: true,
+      placeable: true,
       material: { kind: 'color', color: 0x88ccff },
     };
     const registry = new BlockRegistry([AIR, glass]);

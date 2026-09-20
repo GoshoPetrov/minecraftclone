@@ -34,13 +34,14 @@ export type BlockMaterial = ColorBlockMaterial | AtlasBlockMaterial;
 
 /**
  * The complete, immutable definition of a block type. Behaviour such as
- * solidity and breakability is declared as data here rather than hard-coded
- * at the call sites of physics, raycasting, and interaction.
+ * solidity, breakability, and placeability is declared as data here rather
+ * than hard-coded at the call sites of physics, raycasting, and interaction.
  */
 export interface BlockType {
   readonly id: number;
   readonly name: string;
   readonly solid: boolean;
   readonly breakable: boolean;
+  readonly placeable: boolean;
   readonly material: BlockMaterial;
 }

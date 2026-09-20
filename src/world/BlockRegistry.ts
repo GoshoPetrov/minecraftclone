@@ -64,6 +64,11 @@ export class BlockRegistry {
   isBreakable(id: number): boolean {
     return this.get(id).breakable;
   }
+
+  /** Whether the block with `id` can be placed (unknown ids cannot). */
+  isPlaceable(id: number): boolean {
+    return this.get(id).placeable;
+  }
 }
 
 /** Build the registry for the v1 block set (air, basic_block, bedrock). */

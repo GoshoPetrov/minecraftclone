@@ -5,6 +5,8 @@
  * tuning does not require hunting through unrelated modules. Values are
  * plain data and must not depend on Three.js or the DOM.
  */
+import { BlockIds } from '../world/Block';
+
 export const config = {
   /** Background colour used for the sky, as a 24-bit RGB integer. */
   skyColor: 0x87ceeb,
@@ -72,6 +74,11 @@ export const config = {
      * edited.
      */
     range: 5,
+    /**
+     * The block type placed by a right click. v1 has no inventory or block
+     * selection, so this one configured type is the only placeable block.
+     */
+    defaultPlaceableBlock: BlockIds.basic,
   },
 
   /**

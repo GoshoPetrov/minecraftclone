@@ -15,6 +15,7 @@ const LIQUID: BlockType = {
   name: 'liquid',
   solid: false,
   breakable: false,
+  placeable: false,
   material: { kind: 'color', color: 0x0000ff },
 };
 

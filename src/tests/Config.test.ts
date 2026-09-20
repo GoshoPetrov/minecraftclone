@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { config } from '../config/Config';
+import { createDefaultBlockRegistry } from '../world/BlockRegistry';
 import { CHUNK_SIZE_Y } from '../world/Chunk';
 
 describe('config', () => {
@@ -60,9 +61,12 @@ describe('config', () => {
     expect(config.player.spawnHeadroomBlocks).toBeGreaterThanOrEqual(1);
   });
 
-  it('exposes a positive interaction range', () => {
+  it('exposes a positive interaction range and a placeable default block', () => {
     expect(config.interaction.range).toBeGreaterThan(0);
     expect(Number.isFinite(config.interaction.range)).toBe(true);
+    expect(
+      createDefaultBlockRegistry().isPlaceable(config.interaction.defaultPlaceableBlock),
+    ).toBe(true);
   });
 
   it('exposes valid deterministic generation parameters', () => {

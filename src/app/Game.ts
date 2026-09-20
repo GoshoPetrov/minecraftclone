@@ -5,12 +5,20 @@ import { World } from '../world/World';
 import { HeightmapWorldGenerator } from '../world/WorldGenerator';
 import type { BlockSampler } from '../rendering/ChunkMeshBuilder';
 import { WorldRenderer } from '../rendering/WorldRenderer';
-import { InputManager, type MouseDelta } from '../input/InputManager';
+import { InputManager, type MouseButton, type MouseDelta } from '../input/InputManager';
 import { PlayerController, idleMovementInput, type MovementInput } from '../player/PlayerController';
-import { createPlayerState, idleIntent, type PlayerState, type Vec3 } from '../player/Player';
+import {
+  createPlayerState,
+  idleIntent,
+  playerAabb,
+  type PlayerState,
+  type Vec3,
+} from '../player/Player';
 import { step } from '../player/PlayerPhysics';
 import { findSpawn } from '../player/Spawn';
 import { raycastBlock, type BlockHit } from '../interaction/BlockRaycaster';
+import { BlockInteractor } from '../interaction/BlockInteractor';
+import type { BlockType } from '../world/BlockType';
 import { PlayOverlay } from '../ui/PlayOverlay';
 
 export interface GameOptions {
@@ -31,9 +39,12 @@ export class Game {
   private readonly controller: PlayerController;
   private readonly overlay: PlayOverlay | null;
   private readonly world: World;
+  private readonly interactor: BlockInteractor;
+  private readonly placeableBlock: BlockType;
 
   private playerState: PlayerState;
   private mouseDelta: MouseDelta = { dx: 0, dy: 0 };
+  private mousePresses: readonly MouseButton[] = [];
   private movementInput: MovementInput = idleMovementInput();
   private pointerLocked = false;
   private target: BlockHit | null = null;
@@ -53,6 +64,8 @@ export class Game {
     this.controller = new PlayerController();
     this.overlay = options.overlay === undefined ? null : new PlayOverlay(options.overlay);
     this.playerState = createPlayerState(findSpawn(world));
+    this.interactor = new BlockInteractor(world, registry);
+    this.placeableBlock = registry.get(config.interaction.defaultPlaceableBlock);
 
     this.loop = new GameLoop(
       {
@@ -111,9 +124,9 @@ export class Game {
     this.overlay?.setVisible(!this.pointerLocked);
 
     this.mouseDelta = this.input.consumeMouseDelta();
-    // Reserved for break/place in a later ticket. Draining here keeps the
-    // queue bounded and guarantees one frame's presses are never replayed.
-    this.input.consumeMousePresses();
+    // Drained once per frame so one press is one action and a press can never
+    // leak into a later frame.
+    this.mousePresses = this.input.consumeMousePresses();
 
     const bindings = config.input.bindings;
     this.movementInput = {
@@ -163,7 +176,34 @@ export class Game {
     this.renderer.setTarget(this.target);
   }
 
-  private applyActions(): void {}
+  /**
+   * Apply this frame's queued mouse presses: left breaks the target, right
+   * places the configured block against the targeted face. Each press yields
+   * exactly one validated edit, and validation failures change nothing.
+   * Presses are discarded while the pointer is unlocked so a press queued
+   * just before losing capture can never fire later.
+   */
+  private applyActions(): void {
+    const presses = this.mousePresses;
+    this.mousePresses = [];
+    if (!this.pointerLocked) {
+      return;
+    }
+
+    const range = config.interaction.range;
+    for (const press of presses) {
+      if (press === 'left') {
+        this.interactor.breakBlock(this.target, range);
+      } else {
+        this.interactor.placeBlock(
+          this.target,
+          playerAabb(this.playerState.position),
+          this.placeableBlock,
+          range,
+        );
+      }
+    }
+  }
 
   private flushDirtyMeshes(): void {
     this.renderer.flushDirtyChunks(config.rendering.chunkRebuildBudgetPerFrame);

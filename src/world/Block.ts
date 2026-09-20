@@ -22,6 +22,7 @@ export const AIR: BlockType = {
   name: 'air',
   solid: false,
   breakable: false,
+  placeable: false,
   material: colorMaterial(0x000000),
 };
 
@@ -31,6 +32,7 @@ export const BASIC_BLOCK: BlockType = {
   name: 'basic_block',
   solid: true,
   breakable: true,
+  placeable: true,
   material: colorMaterial(0x9e9e9e),
 };
 
@@ -40,6 +42,7 @@ export const BEDROCK: BlockType = {
   name: 'bedrock',
   solid: true,
   breakable: false,
+  placeable: false,
   material: colorMaterial(0x3c3c3c),
 };
 
