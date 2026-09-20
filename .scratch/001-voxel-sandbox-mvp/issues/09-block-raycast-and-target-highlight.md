@@ -4,7 +4,7 @@
 
 **Blocked by:** 08 — First-person camera, input, and pointer lock.
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] A raycast over world block data (not a Three.js raycaster) returns `null` or the hit block position, face normal, and distance.
 - [ ] The ray starts at the camera eye along the view direction, stops at the first non-air block including bedrock, and is limited to the configurable interaction range.
