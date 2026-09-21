@@ -28,6 +28,7 @@ import {
 } from '../persistence/WorldPersistence';
 import { createBrowserWorldRepository } from '../persistence/RepositoryFactory';
 import { NoticeOverlay } from '../ui/Notices';
+import { DebugReadout, formatDebugPosition } from '../ui/DebugReadout';
 
 export interface GameOptions {
   readonly canvas: HTMLCanvasElement;
@@ -35,6 +36,8 @@ export interface GameOptions {
   readonly overlay?: HTMLElement;
   /** Container for non-fatal persistence notices; optional. */
   readonly notices?: HTMLElement;
+  /** Coordinate readout element; optional so the game can run headless. */
+  readonly debug?: HTMLElement;
 }
 
 /**
@@ -48,6 +51,7 @@ export class Game {
   private readonly input: InputManager;
   private readonly controller: PlayerController;
   private readonly overlay: PlayOverlay | null;
+  private readonly debugReadout: DebugReadout | null;
   private readonly world: World;
   private readonly interactor: BlockInteractor;
   private readonly placeableBlock: BlockType;
@@ -59,6 +63,10 @@ export class Game {
   private movementInput: MovementInput = idleMovementInput();
   private pointerLocked = false;
   private target: BlockHit | null = null;
+  /** Whether the player has toggled the debug readout on with F3. */
+  private debugVisible = false;
+  /** Previous frame's debug-key state, used for rising-edge detection. */
+  private debugKeyWasDown = false;
 
   /**
    * Load the saved world (or start a fresh one), then build the game around
@@ -112,6 +120,8 @@ export class Game {
     this.input = new InputManager(options.canvas);
     this.controller = new PlayerController();
     this.overlay = options.overlay === undefined ? null : new PlayOverlay(options.overlay);
+    this.debugReadout =
+      options.debug === undefined ? null : new DebugReadout(options.debug);
     this.playerState = createPlayerState(findSpawn(world));
     this.interactor = new BlockInteractor(world, registry);
     this.placeableBlock = registry.get(config.interaction.defaultPlaceableBlock);
@@ -173,6 +183,7 @@ export class Game {
    *   5. apply actions        (queued break/place)
    *   6. flush dirty meshes   (budgeted geometry rebuild)
    *   7. follow camera        (position + orientation for the next render)
+   *   8. update debug readout (read-only diagnostic text)
    */
   update(deltaSeconds: number): void {
     this.consumeInput();
@@ -182,6 +193,7 @@ export class Game {
     this.applyActions();
     this.flushDirtyMeshes();
     this.updateCamera(deltaSeconds);
+    this.updateDebugReadout();
   }
 
   /**
@@ -208,6 +220,14 @@ export class Game {
       sprint: this.input.isKeyDown(bindings.sprint),
       crouch: this.input.isKeyDown(bindings.crouch),
     };
+
+    // Toggle on the debug key's rising edge only, so key-repeat while the key
+    // is held cannot flip the readout more than once per physical press.
+    const debugDown = this.input.isKeyDown(bindings.debug);
+    if (debugDown && !this.debugKeyWasDown) {
+      this.debugVisible = !this.debugVisible;
+    }
+    this.debugKeyWasDown = debugDown;
   }
 
   /** Mouse look applies only while the pointer is captured. */
@@ -301,5 +321,19 @@ export class Game {
       targetFov,
       deltaSeconds,
     );
+  }
+
+  /**
+   * Refresh the diagnostic readout from the frame's settled player state.
+   * Read-only: it observes the feet-centre position physics produced and
+   * writes DOM text, and is independent of pointer lock so the player's
+   * choice to show it survives an unlocked pointer and the play overlay.
+   */
+  private updateDebugReadout(): void {
+    if (this.debugReadout === null) {
+      return;
+    }
+    this.debugReadout.setVisible(this.debugVisible);
+    this.debugReadout.setText(formatDebugPosition(this.playerState.position));
   }
 }

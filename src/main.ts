@@ -9,11 +9,13 @@ if (canvas === null) {
 
 const overlay = document.querySelector<HTMLElement>('#play-overlay');
 const notices = document.querySelector<HTMLElement>('#notices');
+const debug = document.querySelector<HTMLElement>('#debug-readout');
 
 const game = await Game.create({
   canvas,
   ...(overlay === null ? {} : { overlay }),
   ...(notices === null ? {} : { notices }),
+  ...(debug === null ? {} : { debug }),
 });
 game.start();
 

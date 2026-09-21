@@ -129,6 +129,7 @@ export const config = {
       jump: 'Space',
       sprint: 'ShiftLeft',
       crouch: 'KeyC',
+      debug: 'F3',
     },
   },
 

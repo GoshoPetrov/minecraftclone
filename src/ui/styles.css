@@ -57,6 +57,32 @@ body {
 }
 
 /*
+ * Debug coordinate readout. Top-left so it clears the crosshair and the
+ * centred notices stack. `pointer-events: none` keeps clicks falling through
+ * to the canvas, and the translucent backing keeps it legible over any
+ * terrain. Toggled by F3; starts hidden.
+ */
+#debug-readout {
+  position: absolute;
+  top: 0.75rem;
+  left: 0.75rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #ffffff;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+  line-height: 1.2;
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+}
+
+#debug-readout[hidden] {
+  display: none;
+}
+
+/*
  * Click-to-play overlay. `pointer-events: none` lets clicks fall through to
  * the canvas underneath, which is what requests pointer lock.
  */
