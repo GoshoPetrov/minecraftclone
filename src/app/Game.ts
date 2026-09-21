@@ -65,8 +65,6 @@ export class Game {
   private target: BlockHit | null = null;
   /** Whether the player has toggled the debug readout on with F3. */
   private debugVisible = false;
-  /** Previous frame's debug-key state, used for rising-edge detection. */
-  private debugKeyWasDown = false;
 
   /**
    * Load the saved world (or start a fresh one), then build the game around
@@ -209,6 +207,7 @@ export class Game {
     // Drained once per frame so one press is one action and a press can never
     // leak into a later frame.
     this.mousePresses = this.input.consumeMousePresses();
+    const keyPresses = this.input.consumeKeyPresses();
 
     const bindings = config.input.bindings;
     this.movementInput = {
@@ -221,13 +220,12 @@ export class Game {
       crouch: this.input.isKeyDown(bindings.crouch),
     };
 
-    // Toggle on the debug key's rising edge only, so key-repeat while the key
-    // is held cannot flip the readout more than once per physical press.
-    const debugDown = this.input.isKeyDown(bindings.debug);
-    if (debugDown && !this.debugKeyWasDown) {
-      this.debugVisible = !this.debugVisible;
+    // A latched physical press, so key-repeat and focus loss cannot drop it.
+    for (const code of keyPresses) {
+      if (code === bindings.debug) {
+        this.debugVisible = !this.debugVisible;
+      }
     }
-    this.debugKeyWasDown = debugDown;
   }
 
   /** Mouse look applies only while the pointer is captured. */

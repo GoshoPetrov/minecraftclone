@@ -17,9 +17,9 @@ const BOUND_KEY_CODES: ReadonlySet<string> = new Set(Object.values(config.input.
  *
  * Game systems never attach their own listeners or read `KeyboardEvent` /
  * `MouseEvent` objects: they ask this one object which keys are down, consume
- * the accumulated mouse delta once per frame, and drain the queue of mouse
- * presses. Pointer-lock acquisition and `contextmenu` suppression also live
- * here, so browser integration stays in a single place.
+ * the accumulated mouse delta once per frame, and drain the queues of mouse
+ * and key presses. Pointer-lock acquisition and `contextmenu` suppression
+ * also live here, so browser integration stays in a single place.
  *
  * Mouse look and button presses only register while the canvas holds pointer
  * lock; once lock is lost all held input is cleared so nothing sticks.
@@ -28,6 +28,7 @@ export class InputManager {
   private readonly canvas: HTMLCanvasElement;
   private readonly pressedKeyCodes = new Set<string>();
   private readonly queuedPresses: MouseButton[] = [];
+  private readonly queuedKeyPresses: string[] = [];
   private accumulatedDx = 0;
   private accumulatedDy = 0;
   private pointerLocked = false;
@@ -77,6 +78,16 @@ export class InputManager {
   }
 
   /**
+   * Drain the queued key presses (one entry per physical press, with OS key
+   * repeat filtered out). Held state is sampled once per frame, so a press
+   * that lands between two frames — or that is followed by focus loss — would
+   * otherwise be lost; a one-shot action must be latched instead.
+   */
+  consumeKeyPresses(): readonly string[] {
+    return this.queuedKeyPresses.splice(0, this.queuedKeyPresses.length);
+  }
+
+  /**
    * Ask the browser to lock the pointer to the canvas. Refusal (for example
    * when not called from a user gesture) is non-fatal: the overlay stays up
    * and the next click tries again.
@@ -113,6 +124,7 @@ export class InputManager {
 
     this.pressedKeyCodes.clear();
     this.queuedPresses.length = 0;
+    this.queuedKeyPresses.length = 0;
     this.accumulatedDx = 0;
     this.accumulatedDy = 0;
   }
@@ -162,6 +174,12 @@ export class InputManager {
     // Space would otherwise scroll the page while playing.
     event.preventDefault();
     this.pressedKeyCodes.add(event.code);
+    // Latch the physical press so a toggle cannot be dropped when the key is
+    // released (or focus is lost) before the next frame polls held state.
+    // Key repeat is filtered so holding the key stays a single press.
+    if (!event.repeat) {
+      this.queuedKeyPresses.push(event.code);
+    }
   };
 
   private readonly onKeyUp = (event: KeyboardEvent): void => {
