@@ -12,7 +12,7 @@ import {
   type PlayerIntent,
   type PlayerState,
 } from '../player/Player';
-import { step } from '../player/PlayerPhysics';
+import { step, type SolidWorld } from '../player/PlayerPhysics';
 
 const registry: BlockRegistry = createDefaultBlockRegistry();
 const EPSILON = 1e-9;
@@ -37,17 +37,21 @@ function fillLayer(world: World, y: number): void {
 }
 
 function moveIntent(x: number, z: number): PlayerIntent {
-  return { move: { x, z }, jump: false, sprint: false };
+  return { move: { x, z }, jump: false, sprint: false, crouch: false };
 }
 
 function sprintIntent(x: number, z: number): PlayerIntent {
-  return { move: { x, z }, jump: false, sprint: true };
+  return { move: { x, z }, jump: false, sprint: true, crouch: false };
+}
+
+function crouchIntent(x: number, z: number, sprint = false): PlayerIntent {
+  return { move: { x, z }, jump: false, sprint, crouch: true };
 }
 
 function runSteps(
   state: PlayerState,
   intent: PlayerIntent,
-  world: World,
+  world: SolidWorld,
   steps: number,
   dt = 1 / 60,
 ): PlayerState {
@@ -60,7 +64,7 @@ function runSteps(
 
 /** Whether a player's collision box overlaps any solid world block. */
 function overlapsSolid(world: World, state: PlayerState): boolean {
-  const bounds = playerAabb(state.position);
+  const bounds = playerAabb(state.position, state.crouching);
   for (let bx = Math.floor(bounds.minX); bx <= Math.floor(bounds.maxX - EPSILON); bx += 1) {
     for (let by = Math.floor(bounds.minY); by <= Math.floor(bounds.maxY - EPSILON); by += 1) {
       for (let bz = Math.floor(bounds.minZ); bz <= Math.floor(bounds.maxZ - EPSILON); bz += 1) {
@@ -201,7 +205,7 @@ describe('player sprint', () => {
   it('does nothing while standing still', () => {
     const world = createPhysicsWorld();
     const settled = runSteps(createPlayerState({ x: 8, y: 1, z: 8 }), idleIntent(), world, 10);
-    const still: PlayerIntent = { move: { x: 0, z: 0 }, jump: false, sprint: true };
+    const still: PlayerIntent = { move: { x: 0, z: 0 }, jump: false, sprint: true, crouch: false };
 
     const held = runSteps(settled, still, world, 30);
 
@@ -225,10 +229,10 @@ describe('player sprint', () => {
 
     // A sprint-jump keeps the boosted horizontal speed for the whole arc.
     const grounded = runSteps(createPlayerState({ x: 2, y: 1, z: 8 }), idleIntent(), world, 10);
-    const airborneIntent: PlayerIntent = { move: { x: 1, z: 0 }, jump: false, sprint: true };
+    const airborneIntent: PlayerIntent = { move: { x: 1, z: 0 }, jump: false, sprint: true, crouch: false };
     let current = step(
       grounded,
-      { move: { x: 1, z: 0 }, jump: true, sprint: true },
+      { move: { x: 1, z: 0 }, jump: true, sprint: true, crouch: false },
       world,
       1 / 60,
     );
@@ -249,11 +253,156 @@ describe('player sprint', () => {
 
     const airborne = step(
       still,
-      { move: { x: 0, z: 0 }, jump: true, sprint: true },
+      { move: { x: 0, z: 0 }, jump: true, sprint: true, crouch: false },
       world,
       1 / 60,
     );
     expect(airborne.movement).toBe('airborne');
+  });
+});
+
+describe('player crouch', () => {
+  const seconds = 0.5;
+  const steps = Math.round(seconds * 60);
+
+  function travel(intent: PlayerIntent): { state: PlayerState; distance: number } {
+    const world = createPhysicsWorld();
+    const start = { x: 2, y: 1, z: 8 };
+    const state = runSteps(createPlayerState(start), intent, world, steps);
+    return {
+      state,
+      distance: Math.hypot(state.position.x - start.x, state.position.z - start.z),
+    };
+  }
+
+  it('slows to exactly the crouch multiplier while grounded', () => {
+    const walked = travel(moveIntent(1, 0));
+    const crouched = travel(crouchIntent(1, 0));
+
+    expect(crouched.state.grounded).toBe(true);
+    expect(crouched.distance / walked.distance).toBeCloseTo(
+      config.player.crouchSpeedMultiplier,
+      5,
+    );
+    expect(crouched.distance).toBeCloseTo(
+      config.player.moveSpeed * config.player.crouchSpeedMultiplier * seconds,
+      5,
+    );
+  });
+
+  it('composes crouch and sprint as the product of both multipliers', () => {
+    const walked = travel(moveIntent(1, 0));
+    const composed = travel(crouchIntent(1, 0, true));
+
+    expect(composed.distance).toBeCloseTo(walked.distance * 0.39, 5);
+    expect(composed.distance / walked.distance).toBeCloseTo(
+      config.player.crouchSpeedMultiplier * config.player.sprintSpeedMultiplier,
+      5,
+    );
+    expect(composed.distance).toBeCloseTo(
+      config.player.moveSpeed *
+        config.player.crouchSpeedMultiplier *
+        config.player.sprintSpeedMultiplier *
+        seconds,
+      5,
+    );
+  });
+
+  it('applies the crouch speed while airborne', () => {
+    const world = createPhysicsWorld();
+    const start = { x: 2, y: 40, z: 8 };
+    const air = runSteps(createPlayerState(start), crouchIntent(1, 0), world, steps);
+    const crouchSpeed = config.player.moveSpeed * config.player.crouchSpeedMultiplier;
+
+    expect(air.grounded).toBe(false);
+    expect(air.velocity.x).toBeCloseTo(crouchSpeed, 5);
+    expect(air.position.x - start.x).toBeCloseTo(crouchSpeed * seconds, 5);
+  });
+
+  it('reports sneaking while grounded and crouched, taking precedence over sprint', () => {
+    const world = createPhysicsWorld();
+    const still = runSteps(createPlayerState({ x: 8, y: 1, z: 8 }), idleIntent(), world, 10);
+
+    const stillCrouched = runSteps(still, crouchIntent(0, 0), world, 5);
+    expect(stillCrouched.crouching).toBe(true);
+    expect(stillCrouched.movement).toBe('sneaking');
+    expect(runSteps(still, crouchIntent(1, 0), world, 5).movement).toBe('sneaking');
+    expect(runSteps(still, crouchIntent(1, 0, true), world, 5).movement).toBe('sneaking');
+  });
+
+  it('reports airborne ahead of sneaking', () => {
+    const world = createPhysicsWorld();
+    const air = runSteps(createPlayerState({ x: 2, y: 40, z: 8 }), crouchIntent(0, 0), world, 5);
+
+    expect(air.grounded).toBe(false);
+    expect(air.crouching).toBe(true);
+    expect(air.movement).toBe('airborne');
+  });
+
+  it('derives a shorter but equally wide collision box while crouching', () => {
+    const standing = playerAabb({ x: 0, y: 0, z: 0 }, false);
+    const crouched = playerAabb({ x: 0, y: 0, z: 0 }, true);
+
+    expect(crouched.maxY).toBeCloseTo(config.player.crouchHeight, 9);
+    expect(standing.maxY).toBeCloseTo(config.player.height, 9);
+    expect(crouched.minY).toBe(standing.minY);
+    expect(crouched.maxX - crouched.minX).toBeCloseTo(standing.maxX - standing.minX, 9);
+    expect(crouched.maxZ - crouched.minZ).toBeCloseTo(standing.maxZ - standing.minZ, 9);
+  });
+});
+
+describe('player crouch stand-up', () => {
+  /**
+   * A stub world with a solid floor and an optional ceiling over one column.
+   * The player is placed at a fractional height so a ceiling can clear the
+   * crouched box while blocking the standing box; full-block terrain cannot
+   * express that gap, so the stub world is the right seam.
+   */
+  function stubWorld(withCeiling: boolean): SolidWorld {
+    return {
+      isSolid: (x, y) => y === 0 || (withCeiling && y === 3 && x === 8),
+    };
+  }
+
+  /** A crouched player at a height where the ceiling blocks standing only. */
+  function crouchedUnderCeiling(): PlayerState {
+    return {
+      ...createPlayerState({ x: 8, y: 1.4, z: 8 }),
+      crouching: true,
+    };
+  }
+
+  it('stays crouched when a released crouch has no headroom', () => {
+    const world = stubWorld(true);
+    const released = crouchedUnderCeiling();
+
+    const next = runSteps(released, idleIntent(), world, 3);
+
+    expect(next.crouching).toBe(true);
+  });
+
+  it('stands up on the next step once the body is in clear space', () => {
+    const world = stubWorld(true);
+    const underCeiling = crouchedUnderCeiling();
+    // Releasing crouch while blocked keeps the player crouched...
+    expect(step(underCeiling, idleIntent(), world, 1 / 60).crouching).toBe(true);
+
+    // ...but the same state moved out from under the ceiling stands up.
+    const clearOfCeiling: PlayerState = {
+      ...underCeiling,
+      position: { x: 10, y: 1.4, z: 8 },
+    };
+    const stood = step(clearOfCeiling, idleIntent(), world, 1 / 60);
+
+    expect(stood.crouching).toBe(false);
+  });
+
+  it('stands up when the same position has headroom', () => {
+    const world = stubWorld(false);
+
+    const stood = step(crouchedUnderCeiling(), idleIntent(), world, 1 / 60);
+
+    expect(stood.crouching).toBe(false);
   });
 });
 
@@ -277,7 +426,7 @@ describe('player ledge falls', () => {
 });
 
 describe('player jumping', () => {
-  const jumpIntent: PlayerIntent = { move: { x: 0, z: 0 }, jump: true, sprint: false };
+  const jumpIntent: PlayerIntent = { move: { x: 0, z: 0 }, jump: true, sprint: false, crouch: false };
 
   it('jumps only while grounded and clears grounded immediately', () => {
     const world = createPhysicsWorld();
@@ -352,7 +501,7 @@ describe('player ceilings and headroom', () => {
     const world = createPhysicsWorld();
     fillLayer(world, 3);
     const grounded = runSteps(createPlayerState({ x: 8, y: 1, z: 8 }), idleIntent(), world, 10);
-    const jumpIntent: PlayerIntent = { move: { x: 0, z: 0 }, jump: true, sprint: false };
+    const jumpIntent: PlayerIntent = { move: { x: 0, z: 0 }, jump: true, sprint: false, crouch: false };
 
     let current = step(grounded, jumpIntent, world, 1 / 60);
     let highest = playerAabb(current.position).maxY;

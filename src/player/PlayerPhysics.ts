@@ -1,5 +1,11 @@
 import { config } from '../config/Config';
-import { playerAabb, type Aabb, type PlayerIntent, type PlayerState } from './Player';
+import {
+  playerAabb,
+  type Aabb,
+  type PlayerIntent,
+  type PlayerState,
+  type Vec3,
+} from './Player';
 
 /**
  * The slice of the world physics needs: whether a world block coordinate is
@@ -24,6 +30,7 @@ interface MutablePlayer {
   vy: number;
   vz: number;
   grounded: boolean;
+  crouching: boolean;
 }
 
 /**
@@ -53,9 +60,15 @@ export function step(
   const subStepCount = Math.max(1, Math.ceil(clampedDt / config.player.physicsStepSeconds));
   const subDt = clampedDt / subStepCount;
   const wish = normalizeWish(intent.move);
-  // Sprint raises horizontal speed in any direction, while grounded or
-  // airborne, so a sprint-jump preserves the boosted speed through the jump.
-  const speedMultiplier = intent.sprint ? config.player.sprintSpeedMultiplier : 1;
+  // Crouch is resolved once per step: a released crouch only stands the
+  // player up when there is headroom for the full-height box.
+  const crouching = resolveCrouch(state, intent, world);
+  // Crouch and sprint compose as a product rather than one replacing the
+  // other, so crouch-sprinting is 0.39x a walk (0.3 x 1.3). This applies in
+  // any direction and while grounded or airborne, so a jump preserves it.
+  const speedMultiplier =
+    (crouching ? config.player.crouchSpeedMultiplier : 1) *
+    (intent.sprint ? config.player.sprintSpeedMultiplier : 1);
 
   const player: MutablePlayer = {
     x: state.position.x,
@@ -65,6 +78,7 @@ export function step(
     vy: state.velocity.y,
     vz: state.velocity.z,
     grounded: state.grounded,
+    crouching,
   };
 
   for (let i = 0; i < subStepCount; i += 1) {
@@ -97,16 +111,19 @@ export function step(
   const horizontalSpeed = Math.hypot(player.vx, player.vz);
   const movement = !player.grounded
     ? 'airborne'
-    : horizontalSpeed > 0
-      ? intent.sprint
-        ? 'sprinting'
-        : 'walking'
-      : 'idle';
+    : player.crouching
+      ? 'sneaking'
+      : horizontalSpeed > 0
+        ? intent.sprint
+          ? 'sprinting'
+          : 'walking'
+        : 'idle';
 
   return {
     position: { x: player.x, y: player.y, z: player.z },
     velocity: { x: player.vx, y: player.vy, z: player.vz },
     grounded: player.grounded,
+    crouching: player.crouching,
     movement,
   };
 }
@@ -117,7 +134,7 @@ function resolveX(player: MutablePlayer, world: SolidWorld): void {
     return;
   }
   const halfWidth = config.player.width / 2;
-  const bounds = playerAabb(player);
+  const bounds = playerAabb(player, player.crouching);
   const movingPositive = player.vx > 0;
 
   let resolvedX = player.x;
@@ -142,8 +159,10 @@ function resolveY(player: MutablePlayer, world: SolidWorld): void {
   if (player.vy === 0) {
     return;
   }
-  const height = config.player.height;
-  const bounds = playerAabb(player);
+  const bounds = playerAabb(player, player.crouching);
+  // The box height is derived once in `playerAabb`, so ceiling resolution
+  // cannot drift from the crouch-aware collision box.
+  const height = bounds.maxY - bounds.minY;
   const movingDown = player.vy < 0;
 
   let resolvedY = player.y;
@@ -169,7 +188,7 @@ function resolveZ(player: MutablePlayer, world: SolidWorld): void {
     return;
   }
   const halfWidth = config.player.width / 2;
-  const bounds = playerAabb(player);
+  const bounds = playerAabb(player, player.crouching);
   const movingPositive = player.vz > 0;
 
   let resolvedZ = player.z;
@@ -184,6 +203,40 @@ function resolveZ(player: MutablePlayer, world: SolidWorld): void {
     player.z = resolvedZ;
     player.vz = 0;
   }
+}
+
+/**
+ * Whether the player should be crouching for this step. Crouch is held while
+ * requested; releasing it only stands the player up when the full-height
+ * standing box has headroom, so a block overhead keeps them crouched until
+ * they move into clear space.
+ */
+function resolveCrouch(
+  state: PlayerState,
+  intent: PlayerIntent,
+  world: SolidWorld,
+): boolean {
+  if (intent.crouch) {
+    return true;
+  }
+  if (!state.crouching) {
+    return false;
+  }
+  return !hasStandingHeadroom(state.position, world);
+}
+
+/** Whether the full-height standing box at `position` clears every solid. */
+function hasStandingHeadroom(position: Vec3, world: SolidWorld): boolean {
+  return !overlapsSolid(world, playerAabb(position, false));
+}
+
+/** Whether any solid block overlaps `bounds`. */
+function overlapsSolid(world: SolidWorld, bounds: Aabb): boolean {
+  let solid = false;
+  forEachSolidBlock(world, bounds, () => {
+    solid = true;
+  });
+  return solid;
 }
 
 /**
@@ -237,6 +290,7 @@ function copyState(state: PlayerState): PlayerState {
     position: { ...state.position },
     velocity: { ...state.velocity },
     grounded: state.grounded,
+    crouching: state.crouching,
     movement: state.movement,
   };
 }

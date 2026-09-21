@@ -20,13 +20,19 @@ export interface Vec3 {
  * Coarse description of what the player is doing after a step. It is derived
  * state for animation and UI; `grounded` carries the physical truth.
  */
-export type PlayerMovementState = 'idle' | 'walking' | 'sprinting' | 'airborne';
+export type PlayerMovementState =
+  | 'idle'
+  | 'walking'
+  | 'sprinting'
+  | 'sneaking'
+  | 'airborne';
 
 /** The complete simulation state that `step` reads and produces. */
 export interface PlayerState {
   readonly position: Vec3;
   readonly velocity: Vec3;
   readonly grounded: boolean;
+  readonly crouching: boolean;
   readonly movement: PlayerMovementState;
 }
 
@@ -41,11 +47,12 @@ export interface PlayerIntent {
   readonly move: { readonly x: number; readonly z: number };
   readonly jump: boolean;
   readonly sprint: boolean;
+  readonly crouch: boolean;
 }
 
-/** An intent that neither moves, jumps, nor sprints. */
+/** An intent that neither moves, jumps, sprints, nor crouches. */
 export function idleIntent(): PlayerIntent {
-  return { move: { x: 0, z: 0 }, jump: false, sprint: false };
+  return { move: { x: 0, z: 0 }, jump: false, sprint: false, crouch: false };
 }
 
 /** A player at rest at the given feet position. */
@@ -54,6 +61,7 @@ export function createPlayerState(position: Vec3): PlayerState {
     position: { ...position },
     velocity: { x: 0, y: 0, z: 0 },
     grounded: false,
+    crouching: false,
     movement: 'airborne',
   };
 }
@@ -71,15 +79,26 @@ export interface Aabb {
 /**
  * The collision bounds of a player at `position`, derived from the configured
  * dimensions rather than stored, so bounds can never drift from the position.
+ * A crouching player is shorter but exactly as wide; the box always spans
+ * from the feet upward.
  */
-export function playerAabb(position: Vec3): Aabb {
+export function playerAabb(position: Vec3, crouching = false): Aabb {
   const halfWidth = config.player.width / 2;
+  const height = crouching ? config.player.crouchHeight : config.player.height;
   return {
     minX: position.x - halfWidth,
     minY: position.y,
     minZ: position.z - halfWidth,
     maxX: position.x + halfWidth,
-    maxY: position.y + config.player.height,
+    maxY: position.y + height,
     maxZ: position.z + halfWidth,
   };
+}
+
+/**
+ * The camera eye height above the feet for a given crouch state. Camera pose
+ * and raycast origin both read this so the view and the aim never diverge.
+ */
+export function eyeHeightFor(crouching: boolean): number {
+  return crouching ? config.camera.crouchEyeHeight : config.camera.eyeHeight;
 }

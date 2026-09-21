@@ -44,6 +44,12 @@ describe('config', () => {
     expect(player.physicsStepSeconds).toBeGreaterThan(0);
     expect(player.physicsStepSeconds).toBeLessThanOrEqual(config.maxFrameDeltaSeconds);
     expect(player.sprintSpeedMultiplier).toBeGreaterThan(0);
+    expect(player.crouchSpeedMultiplier).toBeGreaterThan(0);
+    // The crouched eye stays inside the crouched box, which stays shorter
+    // than the standing box, so standing up always raises the eye and the
+    // crouched box can fit spaces the standing one cannot.
+    expect(config.camera.crouchEyeHeight).toBeLessThan(player.crouchHeight);
+    expect(player.crouchHeight).toBeLessThan(player.height);
     // A sub-step can never move further than the collision box, so a solid
     // block cannot be skipped between two positions.
     expect(player.maxFallSpeed * player.physicsStepSeconds).toBeLessThan(player.height);
@@ -56,6 +62,7 @@ describe('config', () => {
     expect(config.camera.maxPitchRadians).toBeLessThan(Math.PI / 2);
     expect(config.camera.sprintFovMultiplier).toBeGreaterThan(0);
     expect(config.camera.fovTransitionSeconds).toBeGreaterThan(0);
+    expect(config.camera.crouchEyeHeight).toBeGreaterThan(0);
 
     const bindings = config.input.bindings;
     const codes = Object.values(bindings);

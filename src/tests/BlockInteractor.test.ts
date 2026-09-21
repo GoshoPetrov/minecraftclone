@@ -313,6 +313,28 @@ describe('BlockInteractor.placeBlock rejection', () => {
     expect(world.getBlock(5, 10, 8)).toBe(BlockIds.basic);
   });
 
+  it('lets a crouched player place where the standing head would reach', () => {
+    const world = createWorld();
+    // The +X face points at cell (5, 12, 8), the standing head's space.
+    world.setBlock(4, 12, 8, BlockIds.basic);
+    const target = hit(pos(4, 12, 8), pos(1, 0, 0));
+    // Feet at y = 10.3 separate the crouched head (11.8) from the standing
+    // head (12.1), so cell (5, 12, 8) is reachable only while crouched.
+    const feet = pos(5.5, 10.3, 8.5);
+
+    // The standing box overlaps cell (5, 12, 8), so placement is rejected.
+    expect(
+      interactorFor(world).placeBlock(target, playerAabb(feet, false), BASIC_BLOCK, RANGE),
+    ).toBe(false);
+    expect(world.getBlock(5, 12, 8)).toBe(BlockIds.air);
+
+    // The crouched box stays below that cell, so placement is allowed.
+    expect(
+      interactorFor(world).placeBlock(target, playerAabb(feet, true), BASIC_BLOCK, RANGE),
+    ).toBe(true);
+    expect(world.getBlock(5, 12, 8)).toBe(BlockIds.basic);
+  });
+
   it('rejects an unplaceable block type without changing the world', () => {
     const world = createWorld();
     world.setBlock(5, 10, 8, BlockIds.basic);

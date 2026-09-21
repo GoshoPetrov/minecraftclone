@@ -9,6 +9,7 @@ export interface MovementInput {
   readonly right: boolean;
   readonly jump: boolean;
   readonly sprint: boolean;
+  readonly crouch: boolean;
 }
 
 /** Relative mouse motion for one frame, in pixels. */
@@ -32,6 +33,7 @@ export function idleMovementInput(): MovementInput {
     right: false,
     jump: false,
     sprint: false,
+    crouch: false,
   };
 }
 
@@ -99,6 +101,7 @@ export class PlayerController {
       },
       jump: input.jump,
       sprint: input.sprint,
+      crouch: input.crouch,
     };
   }
 }

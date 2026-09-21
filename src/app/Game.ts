@@ -8,6 +8,7 @@ import { InputManager, type MouseButton, type MouseDelta } from '../input/InputM
 import { PlayerController, idleMovementInput, type MovementInput } from '../player/PlayerController';
 import {
   createPlayerState,
+  eyeHeightFor,
   idleIntent,
   playerAabb,
   type PlayerState,
@@ -205,6 +206,7 @@ export class Game {
       right: this.input.isKeyDown(bindings.right),
       jump: this.input.isKeyDown(bindings.jump),
       sprint: this.input.isKeyDown(bindings.sprint),
+      crouch: this.input.isKeyDown(bindings.crouch),
     };
   }
 
@@ -234,7 +236,7 @@ export class Game {
   private updateTargeting(): void {
     const eye: Vec3 = {
       x: this.playerState.position.x,
-      y: this.playerState.position.y + config.camera.eyeHeight,
+      y: this.playerState.position.y + eyeHeightFor(this.playerState.crouching),
       z: this.playerState.position.z,
     };
     this.target = raycastBlock(
@@ -267,7 +269,7 @@ export class Game {
           ? this.interactor.breakBlock(this.target, range)
           : this.interactor.placeBlock(
               this.target,
-              playerAabb(this.playerState.position),
+              playerAabb(this.playerState.position, this.playerState.crouching),
               this.placeableBlock,
               range,
             );
@@ -295,6 +297,7 @@ export class Game {
       this.playerState.position,
       orientation.yaw,
       orientation.pitch,
+      eyeHeightFor(this.playerState.crouching),
       targetFov,
       deltaSeconds,
     );

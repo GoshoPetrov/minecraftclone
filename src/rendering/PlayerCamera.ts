@@ -36,11 +36,16 @@ export class PlayerCamera {
     this.camera.updateProjectionMatrix();
   }
 
-  /** Place the camera above the player's feet and point it along yaw/pitch. */
-  setPose(feetPosition: Vec3, yaw: number, pitch: number): void {
+  /**
+   * Place the camera `eyeHeight` above the player's feet and point it along
+   * yaw/pitch. The eye height is a plain value from the caller so the camera
+   * never re-derives gameplay state; crouching drops it immediately with no
+   * easing, keeping the view matched to the simulated body.
+   */
+  setPose(feetPosition: Vec3, yaw: number, pitch: number, eyeHeight: number): void {
     this.camera.position.set(
       feetPosition.x,
-      feetPosition.y + config.camera.eyeHeight,
+      feetPosition.y + eyeHeight,
       feetPosition.z,
     );
     this.camera.rotation.set(pitch, yaw, 0, 'YXZ');

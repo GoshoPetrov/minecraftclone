@@ -69,10 +69,11 @@ export class WorldRenderer {
     feetPosition: Vec3,
     yaw: number,
     pitch: number,
+    eyeHeight: number,
     targetFovDegrees: number,
     deltaSeconds: number,
   ): void {
-    this.playerCamera.setPose(feetPosition, yaw, pitch);
+    this.playerCamera.setPose(feetPosition, yaw, pitch, eyeHeight);
     this.playerCamera.setTargetFov(targetFovDegrees);
     this.playerCamera.easeFov(deltaSeconds);
   }

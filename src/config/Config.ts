@@ -23,6 +23,12 @@ export const config = {
     far: 1000,
     /** Camera height above the player's feet, in blocks. */
     eyeHeight: 1.62,
+    /**
+     * Camera height above the feet while crouching, in blocks. Lower than
+     * `eyeHeight` so the view drops with the crouched body; it must stay
+     * below `player.crouchHeight` so the eye never leaves the collision box.
+     */
+    crouchEyeHeight: 1.2,
     /** Look sensitivity, in radians of rotation per pixel of mouse motion. */
     lookSensitivity: 0.0022,
     /**
@@ -52,6 +58,11 @@ export const config = {
     width: 0.6,
     /** Collision box height, from the feet upwards, in blocks. */
     height: 1.8,
+    /**
+     * Collision box height while crouching, from the feet upwards, in blocks.
+     * Lower than `height` and higher than `camera.crouchEyeHeight`.
+     */
+    crouchHeight: 1.5,
     /** Horizontal movement speed in blocks per second. */
     moveSpeed: 4.317,
     /**
@@ -59,6 +70,15 @@ export const config = {
      * moving, applied on top of `moveSpeed` and in any horizontal direction.
      */
     sprintSpeedMultiplier: 1.3,
+    /**
+     * Horizontal speed multiplier while crouching, applied on top of
+     * `moveSpeed`. The two multipliers compose as a product rather than one
+     * replacing the other, so crouch-sprinting is `0.3 × 1.3 = 0.39` of a
+     * walk: crouch wins for speed, sprint still counts for a little, and the
+     * crouch multiplier is never ignored when sprint is also held. This is
+     * deliberate — do not "simplify" it to a single multiplier.
+     */
+    crouchSpeedMultiplier: 0.3,
     /** Downward acceleration in blocks per second squared. */
     gravity: 28,
     /** Upward velocity applied by a jump, in blocks per second. */
@@ -108,6 +128,7 @@ export const config = {
       right: 'KeyD',
       jump: 'Space',
       sprint: 'ShiftLeft',
+      crouch: 'KeyC',
     },
   },
 

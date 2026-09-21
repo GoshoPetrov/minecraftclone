@@ -125,6 +125,13 @@ describe('PlayerController movement intent', () => {
     expect(controller.intent(idleMovementInput()).sprint).toBe(false);
   });
 
+  it('passes the crouch button through to the intent', () => {
+    const controller = new PlayerController();
+
+    expect(controller.intent(input({ crouch: true })).crouch).toBe(true);
+    expect(controller.intent(idleMovementInput()).crouch).toBe(false);
+  });
+
   it('produces no movement when nothing is held', () => {
     const controller = new PlayerController();
 
