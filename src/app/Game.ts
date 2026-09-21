@@ -63,7 +63,7 @@ export class Game {
   private movementInput: MovementInput = idleMovementInput();
   private pointerLocked = false;
   private target: BlockHit | null = null;
-  /** Whether the player has toggled the debug readout on with F3. */
+  /** Whether the player has toggled the debug readout on with L. */
   private debugVisible = false;
 
   /**
