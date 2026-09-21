@@ -137,7 +137,7 @@ consistent by the previous one; render happens only after all stages:
 4. updateTargeting   raycast from eye → renderer.setTarget()
 5. applyActions      queued break/place via BlockInteractor → persistence.markDirty()
 6. flushDirtyMeshes  budgeted chunk rebuild
-7. updateCamera      renderer.setCameraPose(feet, yaw, pitch)
+7. updateCamera      renderer.setCameraPose(feet, yaw, pitch, eyeHeight, targetFov, dt)
 ```
 
 To add a system, insert a stage in `Game.update` **in the right position** and
@@ -148,9 +148,9 @@ document why there. Do not add DOM listeners or drive the camera elsewhere —
 
 | File | Responsibility |
 | --- | --- |
-| `Player.ts` | Renderer-independent state: `PlayerState` (`position`, `velocity`, `grounded`, `movement`), `Vec3`, `PlayerIntent`, `createPlayerState`, `idleIntent`, `playerAabb`. `position` is the **centre of the feet**. |
-| `PlayerPhysics.ts` | Pure `step(state, intent, world, dt): PlayerState`. Axis-separated AABB collision, gravity, jump, sub-stepping to prevent tunnelling. Never mutates inputs. |
-| `PlayerController.ts` | Owns yaw/pitch (wrap/clamp), `applyLook(delta)`, `intent(movementInput)` (rotates input by yaw), and `lookDirection`. |
+| `Player.ts` | Renderer-independent state and shapes: `PlayerState` (`position`, `velocity`, `grounded`, `crouching`, `movement`), `Vec3`, `PlayerIntent` (`move`, `jump`, and the required `sprint`/`crouch` flags), factories (`createPlayerState`, `idleIntent`), and the derivations `playerAabb(position, crouching)` and `eyeHeightFor(crouching)`. `position` is the **centre of the feet**. |
+| `PlayerPhysics.ts` | Pure `step(state, intent, world, dt): PlayerState`. Axis-separated AABB collision, gravity, jump, sub-stepping to prevent tunnelling, the composed sprint/crouch speed, the forced stand-up rule, and the crouch ledge guard. Never mutates inputs. |
+| `PlayerController.ts` | Owns yaw/pitch (wrap/clamp), `applyLook(delta)`, `intent(movementInput)` (rotates input by yaw and carries the held `sprint`/`crouch` flags), and `lookDirection`. |
 | `Spawn.ts` | `findSpawn(world): Vec3` — deterministic search for a feet position with headroom. |
 
 **Interacting with the avatar.**
@@ -159,21 +159,60 @@ document why there. Do not add DOM listeners or drive the camera elsewhere —
 // Advance the simulation (pure; returns a new state)
 const next: PlayerState = step(state, intent, world, dtSeconds);
 
-// Build an intent from held buttons
-const intent = controller.intent({ forward, backward, left, right, jump });
-// or idleIntent() to stand still
+// Build an intent from held buttons. `sprint` and `crouch` are required flags.
+const intent = controller.intent({ forward, backward, left, right, jump, sprint, crouch });
+// or idleIntent() to stand still (both flags false)
 
 // Read/derive
-playerAabb(state.position): Aabb          // collision box from config
-controller.lookDirection: Vec3            // unit view vector
+playerAabb(state.position, state.crouching): Aabb   // crouch-aware box from config
+eyeHeightFor(state.crouching): number                // eye height above the feet
+controller.lookDirection: Vec3                      // unit view vector
 controller.orientation: { yaw, pitch }
-state.movement: 'idle' | 'walking' | 'airborne'
+state.crouching: boolean
+state.movement: 'idle' | 'walking' | 'sprinting' | 'sneaking' | 'airborne'
 ```
 
 `step` takes a `SolidWorld` (`{ isSolid(x,y,z): boolean }`), so it is testable
 without a real `World` or a renderer. `PlayerState` is a plain value, so a
 future feature (teleport, knockback, flight) should produce a new state rather
 than mutate the existing one.
+
+**Movement modes (sprint / crouch).** Sprint and crouch are required intent
+flags consumed only by `step`. They are transient and never persisted. The
+rules that must hold:
+
+- **Crouch-aware bounds.** `playerAabb(position, crouching)` derives the box
+  every time: the width is unchanged, the height is `player.crouchHeight` while
+  crouching and `player.height` otherwise, and the box always spans upward from
+  the feet. The same derived box is used for collision and for placement
+  validation, so a crouched player can place a block in the space a standing
+  head would occupy.
+- **Composed speed.** Horizontal speed is
+  `player.moveSpeed × (crouching ? player.crouchSpeedMultiplier : 1) × (sprinting ? player.sprintSpeedMultiplier : 1)`,
+  applied in any direction and while grounded **or** airborne (a jump
+  preserves it). This product is deliberate: sprint still contributes a little
+  even while crouching, so crouch-sprinting is `0.3 × 1.3 = 0.39` of a walk.
+  Do not "simplify" it to a single multiplier.
+- **Movement-label precedence.** `airborne` → `sneaking` → `sprinting` →
+  `walking` → `idle`. Holding crouch and sprint together reports `'sneaking'`,
+  and `'sneaking'` wins the label even though the speed is the composed
+  product. The movement label — never raw input — is what drives the camera's
+  target field of view, so `'sneaking'` also suppresses the sprint widening.
+- **Forced stand-up (crouch-only).** Releasing crouch returns to standing only
+  when the full-height standing box has headroom. Under a low ceiling the
+  player stays `crouching` and stands automatically once they move into clear
+  space. Crouch is resolved once per `step`, before the sub-step loop.
+- **Crouch ledge guard.** While `crouching` **and** grounded, a horizontal
+  move per axis per sub-step is cancelled (position unchanged, that axis's
+  velocity zeroed) when the shifted footprint would have no solid block in the
+  layer directly beneath the feet. It tests the whole footprint, so the player
+  may lean out until the entire footprint clears the block and a one-block
+  step-down counts as an edge; the unblocked axis still translates, so the
+  player slides along the edge instead of sticking. The guard is pure physics,
+  never alters vertical motion, and uses a per-sub-step "was grounded" value so
+  the X and Z passes are symmetric. Removing the block beneath a crouched
+  player still drops them, and a crouch-jump disengages the guard for the
+  airborne period (so a jump can still leave the ledge).
 
 > `Game.playerState` is currently private and the avatar is not exposed as a
 > public API. To add an avatar-facing feature, do it **inside `Game`** (a new
@@ -202,11 +241,11 @@ untouched. `range` comes from `config.interaction.range`.
 
 | File | Responsibility |
 | --- | --- |
-| `WorldRenderer.ts` | Public renderer facade: owns the `THREE.WebGLRenderer`, scene, lights, camera, highlight, and mesh manager. API: `render()`, `flushDirtyChunks(budget)`, `setCameraPose(feet,yaw,pitch)`, `setTarget(hit)`, `resize()`, `dispose()`. |
+| `WorldRenderer.ts` | Public renderer facade: owns the `THREE.WebGLRenderer`, scene, lights, camera, highlight, and mesh manager. API: `render()`, `flushDirtyChunks(budget)`, `setCameraPose(feet, yaw, pitch, eyeHeight, targetFovDegrees, deltaSeconds)`, `setTarget(hit)`, `resize()`, `dispose()`. |
 | `ChunkMeshBuilder.ts` | Pure `buildChunkMesh(chunk, blockAt): ChunkMeshData`. Emits a quad only when a solid block faces a non-solid neighbour (face culling across chunk boundaries). Output is plain typed arrays. |
 | `ChunkMeshManager.ts` | One mesh per chunk. Reads `world.dirtyChunks()`, rebuilds up to a budget, then `world.clearChunkDirty(coord)`. |
 | `ChunkMesh.ts` | The Three.js seam: `ChunkMeshData` → `BufferGeometry`, including sRGB→linear colour conversion. Reuses the mesh object across rebuilds. |
-| `PlayerCamera.ts` | First-person `PerspectiveCamera` (eye height, `YXZ` rotation). |
+| `PlayerCamera.ts` | First-person `PerspectiveCamera`: explicit eye height (so crouch drops the view immediately, with no easing), `YXZ` rotation, and a frame-rate-independent exponential easing of the rendered field of view toward an explicit target (bounded to `[0,1]` so a long frame cannot overshoot). Field of view changes projection only, never the aim direction. |
 | `BlockHighlight.ts` | Reused `LineSegments` outline for the targeted block (view state only). |
 
 The renderer **never** owns block state: it reads through the `BlockSampler`
@@ -222,7 +261,10 @@ callback `(x, y, z) => registry.get(world.getBlock(x, y, z))`, installed by
 
 Mouse look and presses only register while the canvas holds pointer lock. Key
 bindings are `KeyboardEvent.code` values from `config.input.bindings`
-(physical position, layout-independent).
+(physical position, layout-independent). The movement set is
+`forward`/`backward`/`left`/`right`/`jump`/`sprint`/`crouch`. Adding a binding
+is a config-only change: `InputManager` tracks any code it is asked about, and
+`Game.consumeInput` polls the configured code.
 
 ### 3.7 Persistence (`src/persistence/`)
 
@@ -286,6 +328,19 @@ the game can run headless (tests) with the UI omitted.
 `input.bindings`, `rendering`, `maxPixelRatio`, `persistence`, `world`,
 `generation`. Systems read constants from here; do not hard-code tuning.
 
+Movement and view tuning (sprint / crouch):
+
+| Constant | Meaning |
+| --- | --- |
+| `player.sprintSpeedMultiplier` | Sprint speed factor (`1.3`), composed on top of `moveSpeed`. |
+| `player.crouchSpeedMultiplier` | Crouch speed factor (`0.3`); composes with sprint as a product. |
+| `player.crouchHeight` | Crouched collision-box height from the feet (`1.5`; must satisfy `crouchEyeHeight < crouchHeight < height`). |
+| `camera.crouchEyeHeight` | Crouched camera/raycast height above the feet (`1.2`), applied immediately and never eased. |
+| `camera.sprintFovMultiplier` | Target field-of-view factor while `movement === 'sprinting'` (`1.15`). |
+| `camera.fovTransitionSeconds` | Time constant of the field-of-view easing (`0.2`). |
+| `input.bindings.sprint` | Sprint key (`ShiftLeft`). |
+| `input.bindings.crouch` | Crouch key (`KeyC`). |
+
 ---
 
 ## 4. How to Extend (recipes)
@@ -322,7 +377,18 @@ re-raycasting it.
 **Add a keybinding / action**
 
 Add the code to `config.input.bindings`, read it via `input.isKeyDown(...)` in
-`Game.consumeInput`, and act in the appropriate stage.
+`Game.consumeInput`, and act in the appropriate stage. No change to
+`InputManager` is needed — it tracks any code it is asked about.
+
+**Add a movement mode (like sprint / crouch)**
+
+Add a required flag to `PlayerIntent` and every construction site (the
+controller's `intent(...)`, `idleIntent()`, and tests), fold the held button
+into `MovementInput`, and apply the behaviour inside the pure
+`PlayerPhysics.step` — speed, bounds, movement label, and any ledge rule.
+Keep the camera a thin adapter: derive the eye height and target field of view
+from `PlayerState` in `Game.updateCamera` and pass them as plain values. New
+modes are transient unless a separate persistence change is made.
 
 **Add an avatar effect (teleport, knockback, fly)**
 
@@ -346,7 +412,9 @@ See §3.8.
   `rendering/ChunkMeshBuilder` is renderer-independent and unit-tested with
   Vitest (`src/tests/*.test.ts`). No WebGL or real browser is used.
 - Pure functions (`step`, `raycastBlock`, `buildChunkMesh`, `validateSaveData`)
-  are the easiest things to test — prefer adding behaviour there.
+  are the easiest things to test — prefer adding behaviour there. The pure
+  `step` owns sprint/crouch speed ratios, the forced stand-up rule, the
+  movement-label precedence, and the crouch ledge guard.
 - `GameLoop` takes an injectable `FrameScheduler`; `WorldPersistence` takes an
   injectable `SaveScheduler`; `InMemoryWorldRepository` supports fault
   injection. Reuse these seams.
