@@ -406,6 +406,153 @@ describe('player crouch stand-up', () => {
   });
 });
 
+describe('player crouch ledge guard', () => {
+  const CROUCH_START = { x: 8, y: 1, z: 8 };
+
+  /** The default floor with every block at `y = 0` at or beyond `edgeStart` removed. */
+  function createLedgeWorld(edgeStart: number, axis: 'x' | 'z' = 'x'): World {
+    const world = createPhysicsWorld();
+    for (let x = 0; x < CHUNK_SIZE_X; x += 1) {
+      for (let z = 0; z < CHUNK_SIZE_Z; z += 1) {
+        if ((axis === 'x' ? x : z) >= edgeStart) {
+          world.removeBlock(x, 0, z);
+        }
+      }
+    }
+    return world;
+  }
+
+  it('stops a crouch-walk at the edge while the same walk without crouch falls', () => {
+    const world = createLedgeWorld(10);
+
+    const crouched = runSteps(createPlayerState(CROUCH_START), crouchIntent(1, 0), world, 180);
+    expect(crouched.crouching).toBe(true);
+    expect(crouched.grounded).toBe(true);
+    expect(crouched.position.y).toBeCloseTo(1, 5);
+    // The guard uses the whole footprint, so the centre may lean out past the
+    // last solid block (whose far face is at x = 10).
+    expect(crouched.position.x).toBeGreaterThan(9.7);
+    expect(crouched.position.x).toBeLessThan(10.4);
+    expect(overlapsSolid(world, crouched)).toBe(false);
+
+    const walked = runSteps(createPlayerState(CROUCH_START), moveIntent(1, 0), world, 180);
+    expect(walked.grounded).toBe(false);
+    expect(walked.position.y).toBeLessThan(1);
+  });
+
+  it('guards the Z axis just like the X axis', () => {
+    const world = createLedgeWorld(10, 'z');
+
+    const crouched = runSteps(createPlayerState(CROUCH_START), crouchIntent(0, 1), world, 180);
+
+    expect(crouched.crouching).toBe(true);
+    expect(crouched.grounded).toBe(true);
+    expect(crouched.position.y).toBeCloseTo(1, 5);
+    expect(crouched.position.z).toBeGreaterThan(9.7);
+    expect(crouched.position.z).toBeLessThan(10.4);
+  });
+
+  it('treats a one-block step-down as an edge', () => {
+    const world = createPhysicsWorld();
+    // Raise the floor to y = 1 for x < 10, leaving a one-block step down there.
+    for (let x = 0; x < 10; x += 1) {
+      for (let z = 0; z < CHUNK_SIZE_Z; z += 1) {
+        world.setBlock(x, 1, z, BlockIds.basic);
+      }
+    }
+    const upperStart = { x: 8, y: 2, z: 8 };
+
+    const crouched = runSteps(createPlayerState(upperStart), crouchIntent(1, 0), world, 180);
+    expect(crouched.grounded).toBe(true);
+    // The guard refuses to drop onto the lower level and stops on the upper one.
+    expect(crouched.position.y).toBeCloseTo(2, 5);
+    expect(crouched.position.x).toBeLessThan(10.4);
+
+    // Without crouch the same input walks off and steps down to the lower
+    // level. Only 60 steps, so the walker has not yet run off the far edge of
+    // the 16-block-wide test world.
+    const walked = runSteps(createPlayerState(upperStart), moveIntent(1, 0), world, 60);
+    expect(walked.grounded).toBe(true);
+    expect(walked.position.y).toBeCloseTo(1, 5);
+  });
+
+  it('slides along the unguarded axis instead of sticking', () => {
+    const world = createLedgeWorld(10);
+
+    const slid = runSteps(createPlayerState(CROUCH_START), crouchIntent(1, 1), world, 180);
+
+    expect(slid.grounded).toBe(true);
+    // X is blocked at the ledge...
+    expect(slid.position.x).toBeLessThan(10.4);
+    // ...while Z keeps translating along it. Diagonal input is normalised, so
+    // the crouch speed is split across the two axes.
+    expect(slid.position.z).toBeGreaterThan(10.5);
+    expect(overlapsSolid(world, slid)).toBe(false);
+  });
+
+  it('leaves an airborne crouch unguarded', () => {
+    const world = createLedgeWorld(10);
+    const start = { x: 2, y: 40, z: 8 };
+    const seconds = 0.5;
+
+    const air = runSteps(createPlayerState(start), crouchIntent(1, 0), world, seconds * 60);
+    const crouchSpeed = config.player.moveSpeed * config.player.crouchSpeedMultiplier;
+
+    expect(air.grounded).toBe(false);
+    expect(air.position.x - start.x).toBeCloseTo(crouchSpeed * seconds, 5);
+  });
+
+  it('still falls when the supporting block is removed', () => {
+    const world = createPhysicsWorld();
+    const grounded = runSteps(createPlayerState(CROUCH_START), crouchIntent(0, 0), world, 10);
+    expect(grounded.grounded).toBe(true);
+
+    // Remove every floor cell under the crouched player's footprint.
+    for (let x = 7; x <= 8; x += 1) {
+      for (let z = 7; z <= 8; z += 1) {
+        world.removeBlock(x, 0, z);
+      }
+    }
+
+    const falling = runSteps(grounded, crouchIntent(0, 0), world, 60);
+    expect(falling.grounded).toBe(false);
+    expect(falling.position.y).toBeLessThan(1);
+  });
+
+  it('disengages on a crouch-jump so the jump can still carry off the ledge', () => {
+    const world = createLedgeWorld(10);
+    // Start already leaning over the edge, still supported by the last block.
+    const grounded = runSteps(
+      createPlayerState({ x: 10.2, y: 1, z: 8 }),
+      crouchIntent(0, 0),
+      world,
+      10,
+    );
+    expect(grounded.grounded).toBe(true);
+
+    let current = step(
+      grounded,
+      { move: { x: 1, z: 0 }, jump: true, sprint: false, crouch: true },
+      world,
+      1 / 60,
+    );
+    expect(current.grounded).toBe(false);
+
+    const airborneCrouchJump: PlayerIntent = {
+      move: { x: 1, z: 0 },
+      jump: false,
+      sprint: false,
+      crouch: true,
+    };
+    for (let i = 0; i < 60; i += 1) {
+      current = step(current, airborneCrouchJump, world, 1 / 60);
+    }
+
+    expect(current.grounded).toBe(false);
+    expect(current.position.x).toBeGreaterThan(10.3);
+  });
+});
+
 describe('player ledge falls', () => {
   it('becomes airborne and falls when walking off the edge of the floor', () => {
     const world = createPhysicsWorld();

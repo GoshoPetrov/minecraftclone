@@ -82,6 +82,10 @@ export function step(
   };
 
   for (let i = 0; i < subStepCount; i += 1) {
+    // Grounded at the start of the slice drives both the jump and the crouch
+    // ledge guard. Capturing it here, before contact re-derives it, keeps the
+    // X and Z guard passes symmetric within a slice.
+    const wasGrounded = player.grounded;
     // A jump uses the grounded state left by the previous slice, so holding
     // jump cannot fire again once the player has left the ground.
     if (intent.jump && player.grounded) {
@@ -98,14 +102,42 @@ export function step(
     player.vx = wish.x * config.player.moveSpeed * speedMultiplier;
     player.vz = wish.z * config.player.moveSpeed * speedMultiplier;
 
+    // Crouch ledge guard. While crouching on the ground, a horizontal move
+    // that would leave the whole footprint with nothing beneath it is
+    // cancelled on that axis alone, so the player stops at the edge and can
+    // still slide along it. Each axis is judged independently against the
+    // layer directly below the feet, and vertical motion is untouched. The
+    // guard only engages when the slice starts supported, so removing the
+    // floor beneath a crouched player still lets gravity pull them down.
+    const guarding = player.crouching && wasGrounded;
+    const supportY = Math.ceil(player.y - EPSILON) - 1;
+    const startedSupported =
+      guarding && hasGroundSupport(world, playerAabb(player, player.crouching), supportY);
+
+    const previousX = player.x;
     player.x += player.vx * subDt;
     resolveX(player, world);
+    if (
+      startedSupported &&
+      !hasGroundSupport(world, playerAabb(player, player.crouching), supportY)
+    ) {
+      player.x = previousX;
+      player.vx = 0;
+    }
 
     player.y += player.vy * subDt;
     resolveY(player, world);
 
+    const previousZ = player.z;
     player.z += player.vz * subDt;
     resolveZ(player, world);
+    if (
+      startedSupported &&
+      !hasGroundSupport(world, playerAabb(player, player.crouching), supportY)
+    ) {
+      player.z = previousZ;
+      player.vz = 0;
+    }
   }
 
   const horizontalSpeed = Math.hypot(player.vx, player.vz);
@@ -228,6 +260,25 @@ function resolveCrouch(
 /** Whether the full-height standing box at `position` clears every solid. */
 function hasStandingHeadroom(position: Vec3, world: SolidWorld): boolean {
   return !overlapsSolid(world, playerAabb(position, false));
+}
+
+/**
+ * Whether the block layer `layerY` has at least one solid block under the
+ * horizontal footprint. The crouch ledge guard uses this so it can consider
+ * the whole footprint rather than the player's centre: the player may lean
+ * out over the edge until nothing at all remains beneath them, and a
+ * one-block step-down (the layer directly below the feet being empty) counts
+ * as an edge.
+ */
+function hasGroundSupport(world: SolidWorld, bounds: Aabb, layerY: number): boolean {
+  for (let bx = Math.floor(bounds.minX); bx <= Math.floor(bounds.maxX - EPSILON); bx += 1) {
+    for (let bz = Math.floor(bounds.minZ); bz <= Math.floor(bounds.maxZ - EPSILON); bz += 1) {
+      if (world.isSolid(bx, layerY, bz)) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 /** Whether any solid block overlaps `bounds`. */
