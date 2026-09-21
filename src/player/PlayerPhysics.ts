@@ -53,6 +53,9 @@ export function step(
   const subStepCount = Math.max(1, Math.ceil(clampedDt / config.player.physicsStepSeconds));
   const subDt = clampedDt / subStepCount;
   const wish = normalizeWish(intent.move);
+  // Sprint raises horizontal speed in any direction, while grounded or
+  // airborne, so a sprint-jump preserves the boosted speed through the jump.
+  const speedMultiplier = intent.sprint ? config.player.sprintSpeedMultiplier : 1;
 
   const player: MutablePlayer = {
     x: state.position.x,
@@ -78,8 +81,8 @@ export function step(
       player.vy = -config.player.maxFallSpeed;
     }
 
-    player.vx = wish.x * config.player.moveSpeed;
-    player.vz = wish.z * config.player.moveSpeed;
+    player.vx = wish.x * config.player.moveSpeed * speedMultiplier;
+    player.vz = wish.z * config.player.moveSpeed * speedMultiplier;
 
     player.x += player.vx * subDt;
     resolveX(player, world);
@@ -95,7 +98,9 @@ export function step(
   const movement = !player.grounded
     ? 'airborne'
     : horizontalSpeed > 0
-      ? 'walking'
+      ? intent.sprint
+        ? 'sprinting'
+        : 'walking'
       : 'idle';
 
   return {

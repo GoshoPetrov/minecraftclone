@@ -8,6 +8,7 @@ export interface MovementInput {
   readonly left: boolean;
   readonly right: boolean;
   readonly jump: boolean;
+  readonly sprint: boolean;
 }
 
 /** Relative mouse motion for one frame, in pixels. */
@@ -24,7 +25,14 @@ export interface CameraOrientation {
 
 /** A movement input with nothing held. */
 export function idleMovementInput(): MovementInput {
-  return { forward: false, backward: false, left: false, right: false, jump: false };
+  return {
+    forward: false,
+    backward: false,
+    left: false,
+    right: false,
+    jump: false,
+    sprint: false,
+  };
 }
 
 /**
@@ -90,6 +98,7 @@ export class PlayerController {
         z: -cosYaw * forwardAmount - sinYaw * strafeAmount,
       },
       jump: input.jump,
+      sprint: input.sprint,
     };
   }
 }

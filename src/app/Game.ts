@@ -180,7 +180,7 @@ export class Game {
     this.updateTargeting();
     this.applyActions();
     this.flushDirtyMeshes();
-    this.updateCamera();
+    this.updateCamera(deltaSeconds);
   }
 
   /**
@@ -204,6 +204,7 @@ export class Game {
       left: this.input.isKeyDown(bindings.left),
       right: this.input.isKeyDown(bindings.right),
       jump: this.input.isKeyDown(bindings.jump),
+      sprint: this.input.isKeyDown(bindings.sprint),
     };
   }
 
@@ -282,8 +283,20 @@ export class Game {
     this.renderer.flushDirtyChunks(config.rendering.chunkRebuildBudgetPerFrame);
   }
 
-  private updateCamera(): void {
+  private updateCamera(deltaSeconds: number): void {
     const orientation = this.controller.orientation;
-    this.renderer.setCameraPose(this.playerState.position, orientation.yaw, orientation.pitch);
+    // Sprint widens the field of view only while the movement label says so;
+    // the field of view changes projection, never the aim direction.
+    const targetFov =
+      this.playerState.movement === 'sprinting'
+        ? config.camera.fovDegrees * config.camera.sprintFovMultiplier
+        : config.camera.fovDegrees;
+    this.renderer.setCameraPose(
+      this.playerState.position,
+      orientation.yaw,
+      orientation.pitch,
+      targetFov,
+      deltaSeconds,
+    );
   }
 }

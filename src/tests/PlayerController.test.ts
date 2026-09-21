@@ -118,6 +118,13 @@ describe('PlayerController movement intent', () => {
     expect(controller.intent(idleMovementInput()).jump).toBe(false);
   });
 
+  it('passes the sprint button through to the intent', () => {
+    const controller = new PlayerController();
+
+    expect(controller.intent(input({ sprint: true })).sprint).toBe(true);
+    expect(controller.intent(idleMovementInput()).sprint).toBe(false);
+  });
+
   it('produces no movement when nothing is held', () => {
     const controller = new PlayerController();
 

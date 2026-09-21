@@ -37,7 +37,11 @@ function fillLayer(world: World, y: number): void {
 }
 
 function moveIntent(x: number, z: number): PlayerIntent {
-  return { move: { x, z }, jump: false };
+  return { move: { x, z }, jump: false, sprint: false };
+}
+
+function sprintIntent(x: number, z: number): PlayerIntent {
+  return { move: { x, z }, jump: false, sprint: true };
 }
 
 function runSteps(
@@ -157,6 +161,102 @@ describe('player wall and corner sliding', () => {
   });
 });
 
+describe('player sprint', () => {
+  const seconds = 0.5;
+  const steps = Math.round(seconds * 60);
+
+  function travel(intent: PlayerIntent): { state: PlayerState; distance: number } {
+    const world = createPhysicsWorld();
+    const start = { x: 2, y: 1, z: 8 };
+    const state = runSteps(createPlayerState(start), intent, world, steps);
+    return {
+      state,
+      distance: Math.hypot(state.position.x - start.x, state.position.z - start.z),
+    };
+  }
+
+  it('moves exactly the sprint multiplier further than a walk', () => {
+    const walked = travel(moveIntent(1, 0));
+    const sprinted = travel(sprintIntent(1, 0));
+
+    expect(walked.state.grounded).toBe(true);
+    expect(sprinted.state.grounded).toBe(true);
+    expect(sprinted.distance / walked.distance).toBeCloseTo(
+      config.player.sprintSpeedMultiplier,
+      5,
+    );
+    expect(sprinted.distance).toBeCloseTo(
+      config.player.moveSpeed * config.player.sprintSpeedMultiplier * seconds,
+      5,
+    );
+  });
+
+  it('does not move faster diagonally than along an axis', () => {
+    const straight = travel(sprintIntent(1, 0));
+    const diagonal = travel(sprintIntent(1, 1));
+
+    expect(diagonal.distance).toBeCloseTo(straight.distance, 5);
+  });
+
+  it('does nothing while standing still', () => {
+    const world = createPhysicsWorld();
+    const settled = runSteps(createPlayerState({ x: 8, y: 1, z: 8 }), idleIntent(), world, 10);
+    const still: PlayerIntent = { move: { x: 0, z: 0 }, jump: false, sprint: true };
+
+    const held = runSteps(settled, still, world, 30);
+
+    expect(held.position.x).toBe(settled.position.x);
+    expect(held.position.z).toBe(settled.position.z);
+    expect(held.velocity.x).toBe(0);
+    expect(held.velocity.z).toBe(0);
+    expect(held.movement).toBe('idle');
+  });
+
+  it('applies the sprint speed while airborne and through a jump', () => {
+    const world = createPhysicsWorld();
+    // Falling from height keeps the player airborne for the whole interval.
+    const start = { x: 2, y: 40, z: 8 };
+    const air = runSteps(createPlayerState(start), sprintIntent(1, 0), world, steps);
+    const sprintSpeed = config.player.moveSpeed * config.player.sprintSpeedMultiplier;
+
+    expect(air.grounded).toBe(false);
+    expect(air.velocity.x).toBeCloseTo(sprintSpeed, 5);
+    expect(air.position.x - start.x).toBeCloseTo(sprintSpeed * seconds, 5);
+
+    // A sprint-jump keeps the boosted horizontal speed for the whole arc.
+    const grounded = runSteps(createPlayerState({ x: 2, y: 1, z: 8 }), idleIntent(), world, 10);
+    const airborneIntent: PlayerIntent = { move: { x: 1, z: 0 }, jump: false, sprint: true };
+    let current = step(
+      grounded,
+      { move: { x: 1, z: 0 }, jump: true, sprint: true },
+      world,
+      1 / 60,
+    );
+    expect(current.grounded).toBe(false);
+    for (let i = 0; i < 20; i += 1) {
+      current = step(current, airborneIntent, world, 1 / 60);
+      expect(current.velocity.x).toBeCloseTo(sprintSpeed, 5);
+    }
+  });
+
+  it('reports the movement label for each mode', () => {
+    const world = createPhysicsWorld();
+    const still = runSteps(createPlayerState({ x: 8, y: 1, z: 8 }), idleIntent(), world, 10);
+    expect(still.movement).toBe('idle');
+
+    expect(runSteps(still, moveIntent(1, 0), world, 5).movement).toBe('walking');
+    expect(runSteps(still, sprintIntent(1, 0), world, 5).movement).toBe('sprinting');
+
+    const airborne = step(
+      still,
+      { move: { x: 0, z: 0 }, jump: true, sprint: true },
+      world,
+      1 / 60,
+    );
+    expect(airborne.movement).toBe('airborne');
+  });
+});
+
 describe('player ledge falls', () => {
   it('becomes airborne and falls when walking off the edge of the floor', () => {
     const world = createPhysicsWorld();
@@ -177,7 +277,7 @@ describe('player ledge falls', () => {
 });
 
 describe('player jumping', () => {
-  const jumpIntent: PlayerIntent = { move: { x: 0, z: 0 }, jump: true };
+  const jumpIntent: PlayerIntent = { move: { x: 0, z: 0 }, jump: true, sprint: false };
 
   it('jumps only while grounded and clears grounded immediately', () => {
     const world = createPhysicsWorld();
@@ -252,7 +352,7 @@ describe('player ceilings and headroom', () => {
     const world = createPhysicsWorld();
     fillLayer(world, 3);
     const grounded = runSteps(createPlayerState({ x: 8, y: 1, z: 8 }), idleIntent(), world, 10);
-    const jumpIntent: PlayerIntent = { move: { x: 0, z: 0 }, jump: true };
+    const jumpIntent: PlayerIntent = { move: { x: 0, z: 0 }, jump: true, sprint: false };
 
     let current = step(grounded, jumpIntent, world, 1 / 60);
     let highest = playerAabb(current.position).maxY;

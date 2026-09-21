@@ -30,6 +30,16 @@ export const config = {
      * the view can never flip over the top or bottom.
      */
     maxPitchRadians: Math.PI / 2 - 0.01,
+    /**
+     * Field-of-view multiplier applied as the target while the movement label
+     * is `sprinting`. Below 1 would narrow the view; this widens it.
+     */
+    sprintFovMultiplier: 1.15,
+    /**
+     * Time constant, in seconds, for the camera's exponential approach to its
+     * target field of view. Larger values ease more slowly.
+     */
+    fovTransitionSeconds: 0.2,
   },
 
   /**
@@ -44,6 +54,11 @@ export const config = {
     height: 1.8,
     /** Horizontal movement speed in blocks per second. */
     moveSpeed: 4.317,
+    /**
+     * Horizontal speed multiplier while sprinting is held and the player is
+     * moving, applied on top of `moveSpeed` and in any horizontal direction.
+     */
+    sprintSpeedMultiplier: 1.3,
     /** Downward acceleration in blocks per second squared. */
     gravity: 28,
     /** Upward velocity applied by a jump, in blocks per second. */
@@ -92,6 +107,7 @@ export const config = {
       left: 'KeyA',
       right: 'KeyD',
       jump: 'Space',
+      sprint: 'ShiftLeft',
     },
   },
 

@@ -20,7 +20,7 @@ export interface Vec3 {
  * Coarse description of what the player is doing after a step. It is derived
  * state for animation and UI; `grounded` carries the physical truth.
  */
-export type PlayerMovementState = 'idle' | 'walking' | 'airborne';
+export type PlayerMovementState = 'idle' | 'walking' | 'sprinting' | 'airborne';
 
 /** The complete simulation state that `step` reads and produces. */
 export interface PlayerState {
@@ -40,11 +40,12 @@ export interface PlayerState {
 export interface PlayerIntent {
   readonly move: { readonly x: number; readonly z: number };
   readonly jump: boolean;
+  readonly sprint: boolean;
 }
 
-/** An intent that neither moves nor jumps. */
+/** An intent that neither moves, jumps, nor sprints. */
 export function idleIntent(): PlayerIntent {
-  return { move: { x: 0, z: 0 }, jump: false };
+  return { move: { x: 0, z: 0 }, jump: false, sprint: false };
 }
 
 /** A player at rest at the given feet position. */

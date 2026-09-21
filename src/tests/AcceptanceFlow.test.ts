@@ -179,7 +179,7 @@ describe('acceptance: gravity, collision, and jumping', () => {
     );
     expect(grounded.grounded).toBe(true);
 
-    const jump: PlayerIntent = { move: { x: 0, z: 0 }, jump: true };
+    const jump: PlayerIntent = { move: { x: 0, z: 0 }, jump: true, sprint: false };
     const rising = step(grounded, jump, world, 1 / 60);
     expect(rising.grounded).toBe(false);
     expect(rising.velocity.y).toBeGreaterThan(0);
@@ -202,7 +202,7 @@ describe('acceptance: gravity, collision, and jumping', () => {
 
     const player = simulate(
       createPlayerState({ x: 2.5, y: 4, z: 8.5 }),
-      { move: { x: 1, z: 0 }, jump: false },
+      { move: { x: 1, z: 0 }, jump: false, sprint: false },
       world,
       1 / 60,
       5,
@@ -234,7 +234,7 @@ describe('acceptance: gravity, collision, and jumping', () => {
     const results = dts.map((dt) =>
       simulate(
         createPlayerState({ x: 2.5, y: 4, z: 8.5 }),
-        { move: { x: 1, z: 0 }, jump: false },
+        { move: { x: 1, z: 0 }, jump: false, sprint: false },
         world,
         dt,
         2,

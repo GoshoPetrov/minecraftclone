@@ -61,11 +61,20 @@ export class WorldRenderer {
   }
 
   /**
-   * Follow the player at eye height, pointing along yaw/pitch. Called once
-   * per frame after physics so the view matches the simulated body.
+   * Follow the player at eye height, pointing along yaw/pitch, and ease the
+   * rendered field of view toward `targetFovDegrees`. Called once per frame
+   * after physics so the view matches the simulated body.
    */
-  setCameraPose(feetPosition: Vec3, yaw: number, pitch: number): void {
+  setCameraPose(
+    feetPosition: Vec3,
+    yaw: number,
+    pitch: number,
+    targetFovDegrees: number,
+    deltaSeconds: number,
+  ): void {
     this.playerCamera.setPose(feetPosition, yaw, pitch);
+    this.playerCamera.setTargetFov(targetFovDegrees);
+    this.playerCamera.easeFov(deltaSeconds);
   }
 
   /**
