@@ -37,6 +37,11 @@ describe('config', () => {
 
     expect(player.width).toBeGreaterThan(0);
     expect(player.height).toBeGreaterThan(0);
+    // Hearts are whole 2 HP hearts, so full health must be a positive even
+    // number of hit points.
+    expect(Number.isInteger(player.maxHealth)).toBe(true);
+    expect(player.maxHealth).toBeGreaterThan(0);
+    expect(player.maxHealth % 2).toBe(0);
     expect(player.moveSpeed).toBeGreaterThan(0);
     expect(player.gravity).toBeGreaterThan(0);
     expect(player.jumpVelocity).toBeGreaterThan(0);

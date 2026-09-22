@@ -57,6 +57,55 @@ body {
 }
 
 /*
+ * Health hearts. Anchored to the bottom centre so the row clears the centred
+ * crosshair and the top-centre notices. `pointer-events: none` keeps every
+ * click falling through to the canvas so aiming and block interaction are
+ * unaffected. Filled as full / half / empty spans by the hearts presenter.
+ */
+#hearts {
+  position: absolute;
+  left: 50%;
+  bottom: 1rem;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 0.15rem;
+  font-size: 1.4rem;
+  line-height: 1;
+  color: #e53935;
+  text-shadow: 0 0 2px rgba(0, 0, 0, 0.85);
+  pointer-events: none;
+  user-select: none;
+}
+
+.heart {
+  position: relative;
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+}
+
+.heart::before {
+  content: '\2665';
+  position: absolute;
+  inset: 0;
+}
+
+/* Empty and half hearts use a dimmed full heart as their base. */
+.heart--empty::before,
+.heart--half::before {
+  color: rgba(255, 255, 255, 0.28);
+}
+
+/* A half heart overlays the left half of the base with a full red heart. */
+.heart--half::after {
+  content: '\2665';
+  position: absolute;
+  inset: 0;
+  color: #e53935;
+  clip-path: inset(0 50% 0 0);
+}
+
+/*
  * Debug coordinate readout. Top-left so it clears the crosshair and the
  * centred notices stack. `pointer-events: none` keeps clicks falling through
  * to the canvas, and the translucent backing keeps it legible over any

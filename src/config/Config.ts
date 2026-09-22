@@ -54,6 +54,11 @@ export const config = {
    * editing the physics implementation.
    */
   player: {
+    /**
+     * Full health in hit points. Shown as `maxHealth / 2` hearts of 2 HP
+     * each, so it must be a positive even number.
+     */
+    maxHealth: 20,
     /** Collision box width, used for both the x and z axes, in blocks. */
     width: 0.6,
     /** Collision box height, from the feet upwards, in blocks. */

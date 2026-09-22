@@ -15,6 +15,7 @@ import {
   type Vec3,
 } from '../player/Player';
 import { step } from '../player/PlayerPhysics';
+import { createVitals, type VitalsState } from '../player/Vitals';
 import { findSpawn } from '../player/Spawn';
 import { raycastBlock, type BlockHit } from '../interaction/BlockRaycaster';
 import { BlockInteractor } from '../interaction/BlockInteractor';
@@ -29,6 +30,7 @@ import {
 import { createBrowserWorldRepository } from '../persistence/RepositoryFactory';
 import { NoticeOverlay } from '../ui/Notices';
 import { DebugReadout, formatDebugPosition } from '../ui/DebugReadout';
+import { HealthHud } from '../ui/HealthHud';
 
 export interface GameOptions {
   readonly canvas: HTMLCanvasElement;
@@ -38,6 +40,8 @@ export interface GameOptions {
   readonly notices?: HTMLElement;
   /** Coordinate readout element; optional so the game can run headless. */
   readonly debug?: HTMLElement;
+  /** Health hearts element; optional so the game can run headless. */
+  readonly health?: HTMLElement;
 }
 
 /**
@@ -52,12 +56,19 @@ export class Game {
   private readonly controller: PlayerController;
   private readonly overlay: PlayOverlay | null;
   private readonly debugReadout: DebugReadout | null;
+  private readonly healthHud: HealthHud | null;
   private readonly world: World;
   private readonly interactor: BlockInteractor;
   private readonly placeableBlock: BlockType;
   private readonly persistence: WorldPersistence;
 
   private playerState: PlayerState;
+  /**
+   * The avatar's transient health, owned beside the player state. It is never
+   * persisted and no UI code reads it directly; the hearts presenter is fed a
+   * plain number at the end of the frame.
+   */
+  private vitals: VitalsState;
   private mouseDelta: MouseDelta = { dx: 0, dy: 0 };
   private mousePresses: readonly MouseButton[] = [];
   private movementInput: MovementInput = idleMovementInput();
@@ -120,7 +131,12 @@ export class Game {
     this.overlay = options.overlay === undefined ? null : new PlayOverlay(options.overlay);
     this.debugReadout =
       options.debug === undefined ? null : new DebugReadout(options.debug);
+    this.healthHud =
+      options.health === undefined
+        ? null
+        : new HealthHud(options.health, config.player.maxHealth);
     this.playerState = createPlayerState(findSpawn(world));
+    this.vitals = createVitals();
     this.interactor = new BlockInteractor(world, registry);
     this.placeableBlock = registry.get(config.interaction.defaultPlaceableBlock);
 
@@ -181,7 +197,8 @@ export class Game {
    *   5. apply actions        (queued break/place)
    *   6. flush dirty meshes   (budgeted geometry rebuild)
    *   7. follow camera        (position + orientation for the next render)
-   *   8. update debug readout (read-only diagnostic text)
+   *   8. update health HUD    (render the frame's health as hearts)
+   *   9. update debug readout (read-only diagnostic text)
    */
   update(deltaSeconds: number): void {
     this.consumeInput();
@@ -191,6 +208,7 @@ export class Game {
     this.applyActions();
     this.flushDirtyMeshes();
     this.updateCamera(deltaSeconds);
+    this.updateHealthHud();
     this.updateDebugReadout();
   }
 
@@ -319,6 +337,15 @@ export class Game {
       targetFov,
       deltaSeconds,
     );
+  }
+
+  /**
+   * Refresh the hearts presenter from the frame's settled vitals. Only the
+   * plain health number crosses the seam; the presenter never reads gameplay
+   * state and the game never touches the DOM.
+   */
+  private updateHealthHud(): void {
+    this.healthHud?.setHealth(this.vitals.health);
   }
 
   /**
