@@ -177,6 +177,47 @@ body {
 }
 
 /*
+ * Death overlay. Unlike the click-to-play overlay it captures clicks: the
+ * Respawn button needs them, and stray clicks must not reach the canvas and
+ * request pointer lock or edit blocks while dead. The avatar is frozen behind
+ * it, and the translucent backdrop keeps the frozen scene visible.
+ */
+#death-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+  background: rgba(0, 0, 0, 0.55);
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  color: #ffffff;
+  text-align: center;
+  user-select: none;
+}
+
+/* An id selector beats the `display: flex` above, so this actually hides it. */
+#death-overlay[hidden] {
+  display: none;
+}
+
+.overlay__respawn {
+  margin-top: 1rem;
+  padding: 0.5rem 1.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.12);
+  color: inherit;
+  font: inherit;
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+
+.overlay__respawn:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/*
  * Persistence notices. Positioned over the viewport top so they never block
  * aiming. Dismiss buttons re-enable pointer events for themselves only, so the
  * rest of the stack lets clicks through to the canvas.

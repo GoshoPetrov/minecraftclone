@@ -15,7 +15,7 @@ import {
   type Vec3,
 } from '../player/Player';
 import { step } from '../player/PlayerPhysics';
-import { createVitals, updateVitals, type VitalsState } from '../player/Vitals';
+import { createVitals, isDead, updateVitals, type VitalsState } from '../player/Vitals';
 import { findSpawn } from '../player/Spawn';
 import { raycastBlock, type BlockHit } from '../interaction/BlockRaycaster';
 import { BlockInteractor } from '../interaction/BlockInteractor';
@@ -31,6 +31,7 @@ import { createBrowserWorldRepository } from '../persistence/RepositoryFactory';
 import { NoticeOverlay } from '../ui/Notices';
 import { DebugReadout, formatDebugPosition } from '../ui/DebugReadout';
 import { HealthHud } from '../ui/HealthHud';
+import { DeathOverlay } from '../ui/DeathOverlay';
 
 export interface GameOptions {
   readonly canvas: HTMLCanvasElement;
@@ -42,6 +43,8 @@ export interface GameOptions {
   readonly debug?: HTMLElement;
   /** Health hearts element; optional so the game can run headless. */
   readonly health?: HTMLElement;
+  /** Death overlay element; optional so the game can run headless. */
+  readonly death?: HTMLElement;
 }
 
 /**
@@ -57,6 +60,7 @@ export class Game {
   private readonly overlay: PlayOverlay | null;
   private readonly debugReadout: DebugReadout | null;
   private readonly healthHud: HealthHud | null;
+  private readonly deathOverlay: DeathOverlay | null;
   private readonly world: World;
   private readonly interactor: BlockInteractor;
   private readonly placeableBlock: BlockType;
@@ -69,6 +73,13 @@ export class Game {
    * plain number at the end of the frame.
    */
   private vitals: VitalsState;
+  /**
+   * Whether the avatar has died. Death is a transient orchestration flag: it
+   * freezes the avatar and swaps the overlays, and it is cleared on respawn.
+   * `isDead(vitals)` is the underlying condition, but the flag lets death fire
+   * exactly once and lets respawn reset without waiting for health to change.
+   */
+  private dead = false;
   private mouseDelta: MouseDelta = { dx: 0, dy: 0 };
   private mousePresses: readonly MouseButton[] = [];
   private movementInput: MovementInput = idleMovementInput();
@@ -135,6 +146,12 @@ export class Game {
       options.health === undefined
         ? null
         : new HealthHud(options.health, config.player.maxHealth);
+    this.deathOverlay =
+      options.death === undefined
+        ? null
+        : new DeathOverlay(options.death, () => {
+            this.respawn();
+          });
     this.playerState = createPlayerState(findSpawn(world));
     this.vitals = createVitals();
     this.interactor = new BlockInteractor(world, registry);
@@ -180,6 +197,7 @@ export class Game {
     void this.persistence.flush().catch(() => undefined);
     this.persistence.dispose();
     this.loop.stop();
+    this.deathOverlay?.dispose();
     this.input.dispose();
     this.renderer.dispose();
   }
@@ -194,6 +212,8 @@ export class Game {
    *   2. apply look           (yaw/pitch from accumulated mouse delta)
    *   3. step physics         (movement, gravity, collision)
    *   4. update vitals        (fall accumulation + landing damage + void drain)
+   *      - while dead, both physics and vitals are skipped so the avatar
+   *        freezes and no further damage accrues
    *   5. update targeting     (raycast + highlight)
    *   6. apply actions        (queued break/place)
    *   7. flush dirty meshes   (budgeted geometry rebuild)
@@ -204,8 +224,10 @@ export class Game {
   update(deltaSeconds: number): void {
     this.consumeInput();
     this.applyLook();
-    const previous = this.stepPhysics(deltaSeconds);
-    this.advanceVitals(previous, deltaSeconds);
+    if (!this.dead) {
+      const previous = this.stepPhysics(deltaSeconds);
+      this.advanceVitals(previous, deltaSeconds);
+    }
     this.updateTargeting();
     this.applyActions();
     this.flushDirtyMeshes();
@@ -221,7 +243,7 @@ export class Game {
    */
   private consumeInput(): void {
     this.pointerLocked = this.input.isPointerLocked;
-    this.overlay?.setVisible(!this.pointerLocked);
+    this.syncOverlays();
 
     this.mouseDelta = this.input.consumeMouseDelta();
     // Drained once per frame so one press is one action and a press can never
@@ -278,6 +300,52 @@ export class Game {
    */
   private advanceVitals(previous: PlayerState, deltaSeconds: number): void {
     this.vitals = updateVitals(this.vitals, previous, this.playerState, deltaSeconds);
+    if (!this.dead && isDead(this.vitals)) {
+      this.markDead();
+    }
+  }
+
+  /**
+   * The avatar has just died. Death fires exactly once: the flag freezes the
+   * avatar, the pointer is released so the cursor can click Respawn, and the
+   * death overlay replaces the click-to-play overlay.
+   */
+  private markDead(): void {
+    this.dead = true;
+    this.input.releasePointerLock();
+    this.syncOverlays();
+  }
+
+  /**
+   * Return the avatar to the deterministic spawn at full health. Called from
+   * the death overlay's Respawn click, so requesting pointer lock here is a
+   * user gesture and the lock is granted immediately. A fresh player built
+   * from `findSpawn` re-reads the current world (so respawn respects player
+   * edits), carries no velocity, and `createVitals` resets the fall distance
+   * and void timer that killed it. The camera's yaw and pitch are owned by the
+   * controller and are deliberately left untouched.
+   */
+  private respawn(): void {
+    this.dead = false;
+    this.playerState = createPlayerState(findSpawn(this.world));
+    this.vitals = createVitals();
+    // Drop anything captured before the freeze so a click on the death screen
+    // cannot leak into the first frame of play.
+    this.mouseDelta = { dx: 0, dy: 0 };
+    this.mousePresses = [];
+    this.movementInput = idleMovementInput();
+    this.syncOverlays();
+    this.input.requestPointerLock();
+  }
+
+  /**
+   * Keep the two overlays mutually exclusive: the click-to-play overlay only
+   * when the pointer is unlocked **and** the avatar is alive, and the death
+   * overlay only while dead. Both are optional, so the game runs headless.
+   */
+  private syncOverlays(): void {
+    this.overlay?.setVisible(!this.pointerLocked && !this.dead);
+    this.deathOverlay?.setVisible(this.dead);
   }
 
   /**
@@ -310,7 +378,9 @@ export class Game {
   private applyActions(): void {
     const presses = this.mousePresses;
     this.mousePresses = [];
-    if (!this.pointerLocked) {
+    // Unlocked presses can never have been queued, but the dead guard keeps
+    // the "death screen cannot edit the world" guarantee explicit.
+    if (!this.pointerLocked || this.dead) {
       return;
     }
 

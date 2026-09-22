@@ -544,6 +544,87 @@ describe('acceptance: fall damage', () => {
   });
 });
 
+describe('acceptance: death and respawn', () => {
+  /**
+   * The avatar dies when a lethal drop lands. Respawn then builds a fresh
+   * player from the deterministic spawn search (the same call the game makes),
+   * which lands under gravity with full health and no fall residue.
+   */
+  it('a lethal fall ends dead and respawn recovers a fresh avatar', () => {
+    const world = flatWorld();
+    const start = createPlayerState({ x: 8.5, y: 30, z: 8.5 });
+
+    const died = simulateVitals(start, createVitals(), idleIntent(), world, 1 / 60, 6);
+    expect(died.state.grounded).toBe(true);
+    expect(isDead(died.vitals)).toBe(true);
+
+    // Respawn: a fresh state at the spawn search's feet position, plus fresh
+    // vitals. Velocity and the fall accumulator are back to zero.
+    const respawned = createPlayerState(findSpawn(world));
+    const vitals = createVitals();
+    expect(respawned.velocity).toEqual({ x: 0, y: 0, z: 0 });
+    expect(respawned.grounded).toBe(false);
+    expect(isDead(vitals)).toBe(false);
+    expect(vitals.health).toBe(config.player.maxHealth);
+    expect(vitals.fallDistance).toBe(0);
+
+    // The spawn sits on the surface, so the avatar settles immediately and
+    // the negligible drop still costs nothing.
+    const settled = simulateVitals(respawned, vitals, idleIntent(), world, 1 / 60, 1);
+    expect(settled.state.grounded).toBe(true);
+    expect(settled.state.position.y).toBeCloseTo(4, 3);
+    expect(settled.vitals.health).toBe(config.player.maxHealth);
+    expect(isDead(settled.vitals)).toBe(false);
+  });
+
+  /**
+   * The void is the case the freeze protects: a walk off the world edge ends
+   * dead below the threshold, and respawn recovers to the surface.
+   */
+  it('a void fall ends dead and respawn recovers a fresh avatar', () => {
+    const world = flatWorld();
+    const start = createPlayerState({ x: 2.5, y: 4, z: 8.5 });
+    const walkOff: PlayerIntent = {
+      move: { x: 1, z: 0 },
+      jump: false,
+      sprint: false,
+      crouch: false,
+    };
+
+    const grounded = simulateVitals(start, createVitals(), walkOff, world, 1 / 60, 3);
+    const died = simulateVitals(grounded.state, grounded.vitals, walkOff, world, 1 / 60, 10);
+    expect(died.state.position.y).toBeLessThan(config.player.voidY);
+    expect(died.vitals.inVoid).toBe(true);
+    expect(isDead(died.vitals)).toBe(true);
+
+    const respawned = createPlayerState(findSpawn(world));
+    const vitals = createVitals();
+    expect(isDead(vitals)).toBe(false);
+    expect(vitals.health).toBe(config.player.maxHealth);
+    expect(vitals.fallDistance).toBe(0);
+    expect(vitals.inVoid).toBe(false);
+
+    const settled = simulateVitals(respawned, vitals, idleIntent(), world, 1 / 60, 1);
+    expect(settled.state.grounded).toBe(true);
+    expect(settled.state.position.y).toBeGreaterThan(config.player.voidY);
+    expect(settled.vitals.health).toBe(config.player.maxHealth);
+    expect(isDead(settled.vitals)).toBe(false);
+  });
+
+  it('respawn from the spawn search respects player edits to the world', () => {
+    const world = flatWorld();
+    // Dig out the surface block the search would otherwise stand on. The
+    // search re-reads the world, so it must place the avatar on the new top.
+    world.removeBlock(8, 3, 8);
+
+    const respawned = createPlayerState(findSpawn(world));
+    const bx = Math.floor(respawned.position.x);
+    const bz = Math.floor(respawned.position.z);
+    expect(world.isSolid(bx, Math.floor(respawned.position.y) - 1, bz)).toBe(true);
+    expect(world.getBlock(8, 3, 8)).toBe(BlockIds.air);
+  });
+});
+
 describe('acceptance: void damage', () => {
   it('walking off the world edge kills via the void within the expected time', () => {
     const world = flatWorld();

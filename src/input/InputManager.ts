@@ -88,6 +88,23 @@ export class InputManager {
   }
 
   /**
+   * Release the pointer lock, handing the cursor back to the page. It is the
+   * counterpart to `requestPointerLock` and, like it, the only pointer-lock
+   * call in the game. An already-unlocked pointer, or a browser refusal, is
+   * non-fatal.
+   */
+  releasePointerLock(): void {
+    if (!this.pointerLocked) {
+      return;
+    }
+    try {
+      document.exitPointerLock();
+    } catch {
+      // Ignore: the browser declined or there was nothing to release.
+    }
+  }
+
+  /**
    * Ask the browser to lock the pointer to the canvas. Refusal (for example
    * when not called from a user gesture) is non-fatal: the overlay stays up
    * and the next click tries again.

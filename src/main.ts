@@ -11,6 +11,7 @@ const overlay = document.querySelector<HTMLElement>('#play-overlay');
 const notices = document.querySelector<HTMLElement>('#notices');
 const debug = document.querySelector<HTMLElement>('#debug-readout');
 const health = document.querySelector<HTMLElement>('#hearts');
+const death = document.querySelector<HTMLElement>('#death-overlay');
 
 const game = await Game.create({
   canvas,
@@ -18,6 +19,7 @@ const game = await Game.create({
   ...(notices === null ? {} : { notices }),
   ...(debug === null ? {} : { debug }),
   ...(health === null ? {} : { health }),
+  ...(death === null ? {} : { death }),
 });
 game.start();
 
