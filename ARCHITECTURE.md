@@ -48,6 +48,7 @@ avatar, and render the HUD.
         ├── rendering/WorldRenderer (all Three.js)
         │      └── ChunkMeshManager → ChunkMeshBuilder
         ├── ui/PlayOverlay, ui/Notices
+        ├── ui/HealthHud, ui/DeathOverlay, ui/DebugReadout
         └── persistence/WorldPersistence ── WorldRepository
                                              └── IndexedDb / InMemory
 
@@ -131,18 +132,31 @@ edit for saving.
 consistent by the previous one; render happens only after all stages:
 
 ```text
-1. consumeInput      poll keys, drain mouse delta + queued presses
-2. applyLook         yaw/pitch from mouse delta (only while pointer-locked)
-3. stepPhysics       pure step() → next PlayerState
-4. updateTargeting   raycast from eye → renderer.setTarget()
-5. applyActions      queued break/place via BlockInteractor → persistence.markDirty()
-6. flushDirtyMeshes  budgeted chunk rebuild
-7. updateCamera      renderer.setCameraPose(feet, yaw, pitch, eyeHeight, targetFov, dt)
+ 1. consumeInput       poll keys, drain mouse delta + queued presses
+ 2. applyLook          yaw/pitch from mouse delta (only while pointer-locked)
+ 3. stepPhysics        pure step() → next PlayerState
+ 4. updateVitals       fall accumulator + landing damage + void drain
+ 5. updateTargeting    raycast from eye → renderer.setTarget()
+ 6. applyActions       queued break/place via BlockInteractor → persistence.markDirty()
+ 7. flushDirtyMeshes   budgeted chunk rebuild
+ 8. updateCamera       renderer.setCameraPose(feet, yaw, pitch, eyeHeight, targetFov, dt)
+ 9. updateHealthHud    presenter reads the frame's plain health number
+10. updateDebugReadout presenter reads the frame's feet position
 ```
 
 To add a system, insert a stage in `Game.update` **in the right position** and
 document why there. Do not add DOM listeners or drive the camera elsewhere —
 `Game` is the only orchestrator, `InputManager` the only input owner.
+
+**Why vitals sit directly after physics.** `updateVitals` runs **immediately
+after** `stepPhysics` so it observes the exact airborne→grounded transition and
+the frame's final feet position before targeting, actions, or the HUD touch
+them: fall damage must be judged on the landing frame itself, and the void
+drain must see the frame's real depth. The HUD stages at the end only read
+settled values. While the avatar is dead, orchestration skips **both** physics
+and vitals, so the avatar freezes instead of falling further and no further
+damage accrues; targeting, actions, rendering, camera, and the presenters
+still run behind the death overlay. See §3.3 for the pure rules.
 
 ### 3.3 Player / avatar (`src/player/`)
 
@@ -152,6 +166,7 @@ document why there. Do not add DOM listeners or drive the camera elsewhere —
 | `PlayerPhysics.ts` | Pure `step(state, intent, world, dt): PlayerState`. Axis-separated AABB collision, gravity, jump, sub-stepping to prevent tunnelling, the composed sprint/crouch speed, the forced stand-up rule, and the crouch ledge guard. Never mutates inputs. |
 | `PlayerController.ts` | Owns yaw/pitch (wrap/clamp), `applyLook(delta)`, `intent(movementInput)` (rotates input by yaw and carries the held `sprint`/`crouch` flags), and `lookDirection`. |
 | `Spawn.ts` | `findSpawn(world): Vec3` — deterministic search for a feet position with headroom. |
+| `Vitals.ts` | Transient avatar condition beside `PlayerState`: `VitalsState`, the pure `updateVitals`, the fall and void damage rules, `isDead`, `clampHealth`, and `heartStates`. Pure, DOM-free, and renderer-free. |
 
 **Interacting with the avatar.**
 
@@ -176,6 +191,53 @@ state.movement: 'idle' | 'walking' | 'sprinting' | 'sneaking' | 'airborne'
 without a real `World` or a renderer. `PlayerState` is a plain value, so a
 future feature (teleport, knockback, flight) should produce a new state rather
 than mutate the existing one.
+
+**Vitals — health, damage, and death.** `Vitals.ts` owns the avatar's
+condition as a plain value beside the movement state:
+
+```ts
+interface VitalsState {
+  health: number            // hit points, always within [0, maxHealth]
+  fallDistance: number      // airborne downward blocks since last grounded
+  inVoid: boolean           // feet were below player.voidY after last update
+  voidDamageTimer: number   // seconds until the next void tick (while inVoid)
+}
+
+createVitals(): VitalsState                              // full, clear timers
+updateVitals(vitals, previous, next, dt): VitalsState
+isDead(vitals): boolean                                  // health <= 0
+heartStates(health, maxHealth): readonly HeartState[]    // 'full' | 'half' | 'empty'
+clampHealth(health, maxHealth): number
+```
+
+- **Not part of `PlayerState`.** Health is transient, is never written to the
+  save file, and `step` neither reads nor produces it. Orchestration owns the
+  value and advances it in its own stage (see §3.2).
+- **Pure and total.** `updateVitals` never mutates its inputs, does no I/O,
+  and returns a new state with health clamped to `[0, maxHealth]`; a
+  non-finite input collapses to a bound. It can be simulated and tested with
+  no DOM, renderer, or real world.
+- **Fall rule.** `fallDistance` accumulates only while the *previous* state
+  was airborne and only for downward displacement (`max(0, previous.y −
+  next.y)`), so a jump's rise costs nothing and a jump off a ledge is measured
+  from its apex. On the airborne→grounded frame the final slice is added,
+  damage is `max(0, ceil(fallDistance) − safeFallDistance) ×
+  fallDamagePerBlock` whole hit points, and the accumulator resets. While
+  grounded it is held at zero, so short hops never add up.
+- **Void rule.** Below `player.voidY`, the crossing frame takes an immediate
+  `voidDamage` tick, then a carried timer is decremented by `dt` and ticks
+  again every `voidDamageIntervalSeconds` (a long frame may owe several
+  ticks). Rising above the threshold clears `inVoid` and the timer, so a later
+  re-entry ticks immediately. The void is lethal regardless of remaining
+  health, and is independent of the fall rule because a void plunge never
+  lands.
+- **Dead condition.** `isDead` is true exactly at zero health. Death itself is
+  a transient orchestration flag (`Game.dead`) so it fires once, freezes the
+  avatar, and clears on respawn.
+- **Hearts mapping.** `heartStates` returns exactly `maxHealth / 2` hearts,
+  each `full` at 2 HP, `half` at 1 HP, and `empty` at 0; health is clamped
+  first, so an odd value yields exactly one half heart and the mapping is
+  total.
 
 **Movement modes (sprint / crouch).** Sprint and crouch are required intent
 flags consumed only by `step`. They are transient and never persisted. The
@@ -257,7 +319,7 @@ callback `(x, y, z) => registry.get(world.getBlock(x, y, z))`, installed by
 
 | File | Responsibility |
 | --- | --- |
-| `InputManager.ts` | The only place DOM listeners live. Exposes polled state: `isPointerLocked`, `isKeyDown(code)`, `consumeMouseDelta()`, `consumeMousePresses()`, `requestPointerLock()`, `dispose()`. Handles pointer lock, `contextmenu` suppression, and clearing input on blur / lock loss. |
+| `InputManager.ts` | The only place DOM listeners live. Exposes polled state: `isPointerLocked`, `isKeyDown(code)`, `consumeMouseDelta()`, `consumeMousePresses()`, `consumeKeyPresses()`, `requestPointerLock()`, `releasePointerLock()`, `dispose()`. Handles pointer lock, `contextmenu` suppression, and clearing input on blur / lock loss. |
 
 Mouse look and presses only register while the canvas holds pointer lock. Key
 bindings are `KeyboardEvent.code` values from `config.input.bindings`
@@ -301,11 +363,26 @@ total — bad data is a recoverable outcome, never an exception.
 | --- | --- |
 | `Notices.ts` | `NoticeOverlay`: appends/dismisses non-fatal notices (save failures, recovery, disabled storage) over the canvas. `show(message, { level, dismissible, persistent })`. |
 | `PlayOverlay.ts` | `PlayOverlay`: shows/hides the click-to-play panel (`setVisible`). No listeners, no game state. |
-| `styles.css` | All HUD styling, including the pure-CSS crosshair (`#crosshair`). |
-| `index.html` (repo root) | Static HUD markup: `#game-canvas`, `#crosshair`, `#notices`, `#play-overlay`. |
+| `HealthHud.ts` | `HealthHud`: dumb presenter over the hearts element. `setHealth(health)` renders whatever the pure `heartStates` mapping returns, ignores an unchanged value, attaches no listeners, and holds no gameplay state. |
+| `DeathOverlay.ts` | `DeathOverlay`: dumb presenter over the "You died!" panel. `setVisible(visible)` toggles it; the Respawn button forwards clicks to an explicit `onRespawn` callback supplied by `Game`. Reads no game systems and holds no gameplay state. |
+| `DebugReadout.ts` | `DebugReadout` + the pure `formatDebugPosition`: dumb presenter over the coordinate element (`setVisible`, `setText`); ignores redundant changes. |
+| `styles.css` | All HUD styling, including the pure-CSS crosshair (`#crosshair`), the hearts row, and the death panel. |
+| `index.html` (repo root) | Static HUD markup: `#game-canvas`, `#crosshair`, `#hearts`, `#debug-readout`, `#notices`, `#play-overlay`, `#death-overlay`. |
 
-**The HUD today** = crosshair (CSS) + play overlay + notices. There is no
-inventory/hotbar.
+**The HUD today** = crosshair (CSS) + hearts row + coordinate readout + play
+overlay + death overlay + notices. There is no inventory/hotbar. The hearts
+and death overlay are the health/death elements; both are **optional**
+`GameOptions` (`health`, `death`), so the game still constructs and runs
+headless with them absent.
+
+**Health and death UI.** `Game.updateHealthHud` feeds `HealthHud` only the
+frame's plain `vitals.health` number; the presenter never reads gameplay state
+and the game never touches the DOM. `Game.syncOverlays` keeps the overlays
+mutually exclusive: the click-to-play overlay only while the pointer is
+unlocked **and** the avatar is alive, and the death overlay only while dead, so
+they never compete. Respawn reaches orchestration through the explicit
+`onRespawn` callback passed to `DeathOverlay` (wired in the `Game`
+constructor) — the UI never reaches into `Game` or any system.
 
 **Adding a HUD element:**
 
@@ -318,8 +395,9 @@ inventory/hotbar.
    `NoticeOverlay`). Never let UI code read the world, Three.js, or input
    directly, and never let it hold gameplay state.
 
-`Game` accepts optional `overlay` and `notices` elements in `GameOptions`, so
-the game can run headless (tests) with the UI omitted.
+`Game` accepts optional `overlay`, `notices`, `debug`, `health`, and `death`
+elements in `GameOptions`, so the game can run headless (tests) with the UI
+omitted.
 
 ### 3.9 Configuration (`src/config/`)
 
@@ -340,6 +418,17 @@ Movement and view tuning (sprint / crouch):
 | `camera.fovTransitionSeconds` | Time constant of the field-of-view easing (`0.2`). |
 | `input.bindings.sprint` | Sprint key (`ShiftLeft`). |
 | `input.bindings.crouch` | Crouch key (`KeyC`). |
+
+Health and damage tuning:
+
+| Constant | Meaning |
+| --- | --- |
+| `player.maxHealth` | Full health in hit points (`20` = 10 hearts × 2 HP); positive and even. |
+| `player.safeFallDistance` | Whole blocks a fall can cover unharmed (`3`). |
+| `player.fallDamagePerBlock` | Hit points lost per whole block fallen beyond the safe distance (`1`). |
+| `player.voidY` | Feet height below which the avatar is in the void (`-8`); sits below the world floor. |
+| `player.voidDamage` | Hit points removed per void tick (`4`). |
+| `player.voidDamageIntervalSeconds` | Seconds between void ticks after the immediate first tick (`0.5`). |
 
 ---
 
@@ -411,10 +500,16 @@ See §3.8.
 - Logic in `world/`, `player/`, `interaction/`, `persistence/`, and
   `rendering/ChunkMeshBuilder` is renderer-independent and unit-tested with
   Vitest (`src/tests/*.test.ts`). No WebGL or real browser is used.
-- Pure functions (`step`, `raycastBlock`, `buildChunkMesh`, `validateSaveData`)
-  are the easiest things to test — prefer adding behaviour there. The pure
-  `step` owns sprint/crouch speed ratios, the forced stand-up rule, the
-  movement-label precedence, and the crouch ledge guard.
+- Pure functions (`step`, `updateVitals`, `heartStates`, `raycastBlock`,
+  `buildChunkMesh`, `formatDebugPosition`, `validateSaveData`) are the easiest
+  things to test — prefer adding behaviour there. The pure `step` owns
+  sprint/crouch speed ratios, the forced stand-up rule, the movement-label
+  precedence, and the crouch ledge guard; `updateVitals` owns fall damage, the
+  void cadence, and health; `heartStates` owns the full/half/empty mapping.
+- `src/tests/AcceptanceFlow.test.ts` chains the real `step` and `updateVitals`
+  headlessly to prove lethal drops and void falls end dead, and that respawn
+  from the spawn search recovers a fresh, full-health avatar that respects
+  player edits.
 - `GameLoop` takes an injectable `FrameScheduler`; `WorldPersistence` takes an
   injectable `SaveScheduler`; `InMemoryWorldRepository` supports fault
   injection. Reuse these seams.
@@ -429,12 +524,12 @@ Commands: `npm test`, `npm run typecheck`, `npm run build`.
 | --- | --- |
 | **World / voxel data** | `world/World.ts`, `world/Chunk.ts`, `world/Block.ts`, `world/BlockType.ts`, `world/BlockRegistry.ts` |
 | **Terrain generation** | `world/WorldGenerator.ts`, `world/Prng.ts`, `config/Config.ts` (`generation`) |
-| **Player avatar** | `player/Player.ts`, `player/PlayerPhysics.ts`, `player/PlayerController.ts`, `player/Spawn.ts` |
+| **Player avatar** | `player/Player.ts`, `player/PlayerPhysics.ts`, `player/PlayerController.ts`, `player/Spawn.ts`, `player/Vitals.ts` |
 | **Block interaction** | `interaction/BlockRaycaster.ts`, `interaction/BlockInteractor.ts` |
 | **Rendering** | `rendering/WorldRenderer.ts`, `rendering/ChunkMeshBuilder.ts`, `rendering/ChunkMeshManager.ts`, `rendering/ChunkMesh.ts`, `rendering/PlayerCamera.ts`, `rendering/BlockHighlight.ts` |
 | **Input** | `input/InputManager.ts`, `config/Config.ts` (`input.bindings`) |
 | **Persistence** | `persistence/WorldRepository.ts`, `persistence/IndexedDbWorldRepository.ts`, `persistence/InMemoryWorldRepository.ts`, `persistence/RepositoryFactory.ts`, `persistence/SaveData.ts`, `persistence/WorldFactory.ts`, `persistence/WorldPersistence.ts` |
-| **HUD / UI** | `ui/Notices.ts`, `ui/PlayOverlay.ts`, `ui/styles.css`, `index.html` |
+| **HUD / UI** | `ui/Notices.ts`, `ui/PlayOverlay.ts`, `ui/HealthHud.ts`, `ui/DeathOverlay.ts`, `ui/DebugReadout.ts`, `ui/styles.css`, `index.html` |
 | **Orchestration** | `app/Game.ts`, `app/GameLoop.ts`, `src/main.ts` |
 | **Configuration** | `config/Config.ts` |
 | **Tests** | `src/tests/*.test.ts` |
