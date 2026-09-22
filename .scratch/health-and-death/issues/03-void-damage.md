@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 — Hearts HUD shows the avatar's health; 02 — Fall damage (extends the same pure `updateVitals` function and vitals stage).
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] Below `player.voidY`, the first damage tick lands immediately on the frame the avatar crosses the threshold.
 - [ ] Subsequent ticks deal `player.voidDamage` every `player.voidDamageIntervalSeconds`, by decrementing a carried timer by `dt` and applying a tick whenever it reaches zero.

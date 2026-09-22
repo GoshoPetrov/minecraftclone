@@ -66,6 +66,21 @@ export const config = {
     safeFallDistance: 3,
     /** Hit points lost per whole block fallen beyond `safeFallDistance`. */
     fallDamagePerBlock: 1,
+    /**
+     * Feet height below which the avatar is in the void. It sits below the
+     * world floor so the avatar visibly falls out of the world before the
+     * first tick, and applies everywhere the world is air at every height
+     * (notably past the horizontal edge).
+     */
+    voidY: -8,
+    /** Hit points removed by each void damage tick. */
+    voidDamage: 4,
+    /**
+     * Seconds between void damage ticks after the immediate first tick. The
+     * first tick lands on the frame the avatar crosses `voidY`, then a carried
+     * timer consumes this interval per tick.
+     */
+    voidDamageIntervalSeconds: 0.5,
     /** Collision box width, used for both the x and z axes, in blocks. */
     width: 0.6,
     /** Collision box height, from the feet upwards, in blocks. */

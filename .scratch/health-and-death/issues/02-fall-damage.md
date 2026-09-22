@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 — Hearts HUD shows the avatar's health (needs the vitals value and the hearts HUD to make the loss visible).
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] A fall of exactly 3.0 blocks is safe; falls of 3.1 and 4.0 blocks each cost at least 1 HP.
 - [ ] Damage on landing is `max(0, ceil(fallDistance) − safeFallDistance) × fallDamagePerBlock`, always a whole number of hit points.

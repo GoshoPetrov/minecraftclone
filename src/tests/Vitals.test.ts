@@ -15,6 +15,9 @@ const MAX_HEALTH = config.player.maxHealth;
 const HEART_COUNT = MAX_HEALTH / 2;
 const SAFE_FALL_DISTANCE = config.player.safeFallDistance;
 const FALL_DAMAGE_PER_BLOCK = config.player.fallDamagePerBlock;
+const VOID_Y = config.player.voidY;
+const VOID_DAMAGE = config.player.voidDamage;
+const VOID_INTERVAL = config.player.voidDamageIntervalSeconds;
 
 /** A player state at `y`, grounded or airborne, with no horizontal motion. */
 function player(y: number, grounded: boolean): PlayerState {
@@ -34,6 +37,8 @@ describe('createVitals', () => {
     expect(vitals.health).toBe(20);
     expect(vitals.health).toBe(MAX_HEALTH);
     expect(vitals.fallDistance).toBe(0);
+    expect(vitals.inVoid).toBe(false);
+    expect(vitals.voidDamageTimer).toBe(0);
     expect(isDead(vitals)).toBe(false);
   });
 });
@@ -109,9 +114,9 @@ describe('clampHealth', () => {
 
 describe('isDead', () => {
   it('is true exactly at zero health', () => {
-    expect(isDead({ health: 0, fallDistance: 0 })).toBe(true);
-    expect(isDead({ health: 1, fallDistance: 0 })).toBe(false);
-    expect(isDead({ health: MAX_HEALTH, fallDistance: 0 })).toBe(false);
+    expect(isDead({ ...createVitals(), health: 0 })).toBe(true);
+    expect(isDead({ ...createVitals(), health: 1 })).toBe(false);
+    expect(isDead({ ...createVitals(), health: MAX_HEALTH })).toBe(false);
   });
 });
 
@@ -246,5 +251,134 @@ describe('updateVitals fall damage', () => {
 
     expect(posed.health).toBe(plain.health);
     expect(posed.fallDistance).toBe(plain.fallDistance);
+  });
+});
+
+describe('updateVitals void damage', () => {
+  /**
+   * Advance one frame while staying below the threshold: a fixed pair of
+   * airborne states with the feet below `voidY`, so only the void rule fires.
+   */
+  function tickInVoid(vitals: VitalsState, dt: number): VitalsState {
+    return updateVitals(
+      vitals,
+      player(VOID_Y - 1, false),
+      player(VOID_Y - 1, false),
+      dt,
+    );
+  }
+
+  it('never damages the avatar at or above the threshold', () => {
+    const highUp = updateVitals(createVitals(), player(40, false), player(30, false), 1 / 60);
+    expect(highUp.health).toBe(MAX_HEALTH);
+    expect(highUp.inVoid).toBe(false);
+
+    // Exactly at the threshold is not yet in the void; one block lower is.
+    const atThreshold = updateVitals(
+      createVitals(),
+      player(VOID_Y + 1, false),
+      player(VOID_Y, false),
+      1 / 60,
+    );
+    expect(atThreshold.health).toBe(MAX_HEALTH);
+    expect(atThreshold.inVoid).toBe(false);
+  });
+
+  it('lands the first tick immediately on crossing the threshold', () => {
+    const result = updateVitals(
+      createVitals(),
+      player(VOID_Y, false),
+      player(VOID_Y - 0.1, false),
+      1 / 60,
+    );
+
+    expect(result.health).toBe(MAX_HEALTH - VOID_DAMAGE);
+    expect(result.inVoid).toBe(true);
+    expect(result.voidDamageTimer).toBe(VOID_INTERVAL);
+  });
+
+  it('ticks again only once the configured interval has elapsed', () => {
+    // 0.125s divides the configured interval exactly, so the cadence is not
+    // exposed to floating-point drift.
+    const dt = 0.125;
+    const framesPerInterval = Math.round(VOID_INTERVAL / dt);
+    expect(framesPerInterval).toBeGreaterThan(0);
+
+    let vitals = tickInVoid(createVitals(), dt);
+    expect(vitals.health).toBe(MAX_HEALTH - VOID_DAMAGE);
+
+    // One frame short of the interval: no second tick yet.
+    for (let frame = 1; frame < framesPerInterval; frame += 1) {
+      vitals = tickInVoid(vitals, dt);
+    }
+    expect(vitals.health).toBe(MAX_HEALTH - VOID_DAMAGE);
+
+    // The next frame completes the interval and lands the second tick.
+    vitals = tickInVoid(vitals, dt);
+    expect(vitals.health).toBe(MAX_HEALTH - 2 * VOID_DAMAGE);
+  });
+
+  it('resets the timer on leaving so a later re-entry ticks immediately', () => {
+    const dt = 0.125;
+    // Enter (immediate tick) and burn two frames of the next interval.
+    let vitals = tickInVoid(createVitals(), dt);
+    vitals = tickInVoid(vitals, dt);
+    vitals = tickInVoid(vitals, dt);
+    expect(vitals.voidDamageTimer).toBeGreaterThan(0);
+
+    // Rise back to exactly the threshold: the void state clears.
+    vitals = updateVitals(
+      vitals,
+      player(VOID_Y - 1, false),
+      player(VOID_Y, false),
+      dt,
+    );
+    expect(vitals.inVoid).toBe(false);
+    expect(vitals.voidDamageTimer).toBe(0);
+
+    // Re-entering ignores the leftover time and ticks on the first frame.
+    vitals = tickInVoid(vitals, dt);
+    expect(vitals.health).toBe(MAX_HEALTH - 2 * VOID_DAMAGE);
+    expect(vitals.inVoid).toBe(true);
+  });
+
+  it('keeps ticking until it is lethal from full health', () => {
+    let vitals = createVitals();
+    let frames = 0;
+    while (!isDead(vitals) && frames < 10_000) {
+      vitals = tickInVoid(vitals, 0.125);
+      frames += 1;
+    }
+
+    expect(isDead(vitals)).toBe(true);
+    expect(vitals.health).toBe(0);
+  });
+
+  it('clamps a lethal tick at zero even for tiny remaining health', () => {
+    const nearlyDead: VitalsState = { ...createVitals(), health: 1 };
+    const result = tickInVoid(nearlyDead, 0.125);
+
+    expect(result.health).toBe(0);
+    expect(isDead(result)).toBe(true);
+    expect(Number.isFinite(result.health)).toBe(true);
+  });
+
+  it('applies only void damage during a plunge that never lands', () => {
+    // A long airborne drop that stays below the threshold accumulates fall
+    // distance but never triggers the landing branch, so its health loss is
+    // exactly the void ticks.
+    let vitals = createVitals();
+    for (let frame = 0; frame < 8; frame += 1) {
+      vitals = updateVitals(
+        vitals,
+        player(VOID_Y - 1 - frame, false),
+        player(VOID_Y - 2 - frame, false),
+        0.125,
+      );
+    }
+
+    expect(vitals.fallDistance).toBeGreaterThan(0);
+    expect(vitals.health).toBe(MAX_HEALTH - 2 * VOID_DAMAGE);
+    expect(vitals.inVoid).toBe(true);
   });
 });

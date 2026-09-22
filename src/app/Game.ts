@@ -193,7 +193,7 @@ export class Game {
    *   1. consume input        (polled state and queued actions)
    *   2. apply look           (yaw/pitch from accumulated mouse delta)
    *   3. step physics         (movement, gravity, collision)
-   *   4. update vitals        (fall accumulation + landing damage)
+   *   4. update vitals        (fall accumulation + landing damage + void drain)
    *   5. update targeting     (raycast + highlight)
    *   6. apply actions        (queued break/place)
    *   7. flush dirty meshes   (budgeted geometry rebuild)
@@ -271,9 +271,10 @@ export class Game {
   /**
    * Advance the transient vitals from the exact grounded transition and
    * position physics just produced. Running immediately after the physics
-   * stage means fall accumulation and landing damage observe the frame's real
-   * end state before targeting, actions, or the HUD touch it. All damage
-   * arithmetic lives in the pure vitals module.
+   * stage means fall accumulation, landing damage, and the void drain all
+   * observe the frame's real end state before targeting, actions, or the HUD
+   * touch it. All damage arithmetic, including the void cadence, lives in the
+   * pure vitals module.
    */
   private advanceVitals(previous: PlayerState, deltaSeconds: number): void {
     this.vitals = updateVitals(this.vitals, previous, this.playerState, deltaSeconds);

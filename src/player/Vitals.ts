@@ -10,9 +10,10 @@ import type { PlayerState } from './Player';
  * This module is pure, DOM-free, and renderer-free so health, damage, and the
  * hearts mapping can be simulated and tested headlessly.
  *
- * Later tickets extend the value with the cross-frame void state (`inVoid`,
- * `voidDamageTimer`); this ticket adds the fall-distance accumulator and the
- * landing damage rule.
+ * The value carries the cross-frame void state (`inVoid`, `voidDamageTimer`)
+ * alongside the fall-distance accumulator, so the pure function below owns
+ * every damage rule — fall and void — and orchestration only supplies the
+ * frame's states and reads the result.
  */
 
 /** The avatar's transient condition. Never written to the save file. */
@@ -26,6 +27,18 @@ export interface VitalsState {
    * zero on landing and while grounded.
    */
   readonly fallDistance: number;
+  /**
+   * Whether the avatar's feet were below `player.voidY` after the last
+   * update. Drives the immediate first void tick on entry and the timer reset
+   * on exit.
+   */
+  readonly inVoid: boolean;
+  /**
+   * Seconds until the next void damage tick while below the threshold. It is
+   * only meaningful while `inVoid` is true; leaving the void zeroes it so a
+   * later re-entry ticks immediately instead of carrying the remainder over.
+   */
+  readonly voidDamageTimer: number;
 }
 
 /** One heart's worth of health, as rendered in the HUD. */
@@ -46,9 +59,17 @@ export function clampHealth(health: number, maxHealth: number): number {
   return Math.min(maxHealth, Math.max(0, health));
 }
 
-/** A fresh avatar at full health, grounded, with no fall accumulated. */
+/**
+ * A fresh avatar at full health, above the void, with no fall accumulated and
+ * the void timer ready to tick immediately on entry.
+ */
 export function createVitals(): VitalsState {
-  return { health: config.player.maxHealth, fallDistance: 0 };
+  return {
+    health: config.player.maxHealth,
+    fallDistance: 0,
+    inVoid: false,
+    voidDamageTimer: 0,
+  };
 }
 
 /** Whether the avatar has died. True exactly at zero (and never below). */
@@ -68,16 +89,24 @@ export function isDead(vitals: VitalsState): boolean {
  * grounded the accumulator is held at zero, so a walk off a ledge starts from
  * zero and repeated short hops never add up.
  *
- * This function owns every fall and damage rule; orchestration only supplies
+ * Void damage is independent of the fall rule: a plunge below `player.voidY`
+ * never lands, so only the void applies. The frame the avatar first drops
+ * below the threshold takes an immediate tick; afterwards a carried timer is
+ * decremented by `dt` and a tick is applied whenever it reaches zero. Rising
+ * back above the threshold clears `inVoid` and the timer, so a later re-entry
+ * ticks immediately rather than inheriting the remainder. Because the drain
+ * keeps ticking for as long as the avatar stays below, the void is lethal no
+ * matter how much health remains.
+ *
+ * This function owns every fall and void rule; orchestration only supplies
  * the states and reads the result. It is pure and total: the inputs are never
  * mutated, and the returned health is always clamped to `[0, maxHealth]`.
- * `dt` is unused by the fall rule (it is reserved for the void timer).
  */
 export function updateVitals(
   vitals: VitalsState,
   previous: PlayerState,
   next: PlayerState,
-  _dt: number,
+  dt: number,
 ): VitalsState {
   const wasAirborne = !previous.grounded;
   // The previous state decides whether this slice counts: once grounded the
@@ -88,11 +117,39 @@ export function updateVitals(
 
   let health = vitals.health;
   if (wasAirborne && next.grounded) {
-    health = clampHealth(health - fallDamage(fallDistance), config.player.maxHealth);
+    health -= fallDamage(fallDistance);
     fallDistance = 0;
   }
 
-  return { health, fallDistance };
+  const belowVoid = next.position.y < config.player.voidY;
+  let inVoid = vitals.inVoid;
+  let voidDamageTimer = vitals.voidDamageTimer;
+  if (!belowVoid) {
+    // Leaving the void clears the carried timer so a later re-entry lands its
+    // first tick immediately instead of waiting out the remainder.
+    inVoid = false;
+    voidDamageTimer = 0;
+  } else if (!inVoid) {
+    // The frame the avatar crosses the threshold always takes a tick.
+    health -= config.player.voidDamage;
+    inVoid = true;
+    voidDamageTimer = config.player.voidDamageIntervalSeconds;
+  } else {
+    const { timer, ticks } = advanceVoidTimer(
+      voidDamageTimer,
+      dt,
+      config.player.voidDamageIntervalSeconds,
+    );
+    health -= ticks * config.player.voidDamage;
+    voidDamageTimer = timer;
+  }
+
+  return {
+    health: clampHealth(health, config.player.maxHealth),
+    fallDistance,
+    inVoid,
+    voidDamageTimer,
+  };
 }
 
 /**
@@ -109,6 +166,34 @@ function fallDamage(fallDistance: number): number {
     Math.ceil(fallDistance) - config.player.safeFallDistance,
   );
   return blocksBeyondSafe * config.player.fallDamagePerBlock;
+}
+
+/**
+ * Consume `dt` from the void cadence timer and report how many ticks came due
+ * plus the time left on the next one. A frame longer than the interval (a
+ * hitch or a clamped frame delta) can owe more than one tick, so this loops
+ * rather than dropping the extra. A non-positive or non-finite interval would
+ * make the loop unbounded, so it degrades to a single tick instead.
+ */
+function advanceVoidTimer(
+  timer: number,
+  dt: number,
+  interval: number,
+): { readonly timer: number; readonly ticks: number } {
+  if (!Number.isFinite(interval) || interval <= 0) {
+    return { timer: 0, ticks: 1 };
+  }
+  if (!Number.isFinite(dt) || dt <= 0) {
+    const remaining = Number.isFinite(timer) ? Math.max(0, timer) : 0;
+    return { timer: remaining, ticks: 0 };
+  }
+  let next = (Number.isFinite(timer) ? timer : 0) - dt;
+  let ticks = 0;
+  while (next <= 0) {
+    ticks += 1;
+    next += interval;
+  }
+  return { timer: next, ticks };
 }
 
 /**

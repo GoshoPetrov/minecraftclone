@@ -91,6 +91,29 @@ function simulate(
   return next;
 }
 
+/**
+ * Advance the real `step` and the real `updateVitals` together, passing the
+ * exact previous and next states the game wires together each frame.
+ */
+function simulateVitals(
+  state: PlayerState,
+  vitals: VitalsState,
+  intent: PlayerIntent,
+  world: World,
+  dt: number,
+  seconds: number,
+): { readonly state: PlayerState; readonly vitals: VitalsState } {
+  let nextState = state;
+  let nextVitals = vitals;
+  const frames = Math.max(1, Math.round(seconds / dt));
+  for (let i = 0; i < frames; i += 1) {
+    const previous = nextState;
+    nextState = step(previous, intent, world, dt);
+    nextVitals = updateVitals(nextVitals, previous, nextState, dt);
+  }
+  return { state: nextState, vitals: nextVitals };
+}
+
 /** The highest solid block Y in a column. */
 function topSolidAt(world: World, x: number, z: number): number {
   for (let y = world.size.y - 1; y >= 0; y -= 1) {
@@ -468,29 +491,6 @@ describe('acceptance: rejected interactions do nothing', () => {
 });
 
 describe('acceptance: fall damage', () => {
-  /**
-   * Advance the real `step` and the real `updateVitals` together, passing the
-   * exact previous and next states the game wires together each frame.
-   */
-  function simulateVitals(
-    state: PlayerState,
-    vitals: VitalsState,
-    intent: PlayerIntent,
-    world: World,
-    dt: number,
-    seconds: number,
-  ): { readonly state: PlayerState; readonly vitals: VitalsState } {
-    let nextState = state;
-    let nextVitals = vitals;
-    const frames = Math.max(1, Math.round(seconds / dt));
-    for (let i = 0; i < frames; i += 1) {
-      const previous = nextState;
-      nextState = step(previous, intent, world, dt);
-      nextVitals = updateVitals(nextVitals, previous, nextState, dt);
-    }
-    return { state: nextState, vitals: nextVitals };
-  }
-
   it('a controlled drop from a lethal height ends dead', () => {
     const world = flatWorld();
     const start = createPlayerState({ x: 8.5, y: 30, z: 8.5 });
@@ -541,5 +541,36 @@ describe('acceptance: fall damage', () => {
     expect(isDead(result.vitals)).toBe(false);
     // It still costs health: the fall is beyond the safe distance.
     expect(result.vitals.health).toBeLessThan(config.player.maxHealth);
+  });
+});
+
+describe('acceptance: void damage', () => {
+  it('walking off the world edge kills via the void within the expected time', () => {
+    const world = flatWorld();
+    // Start grounded near the +x edge and walk straight off it. Out past the
+    // last block the world is air at every height, so physics lets the avatar
+    // fall freely below the void threshold.
+    const start = createPlayerState({ x: 2.5, y: 4, z: 8.5 });
+    const walkOff: PlayerIntent = {
+      move: { x: 1, z: 0 },
+      jump: false,
+      sprint: false,
+      crouch: false,
+    };
+
+    // Three seconds in the avatar is still on the ground with full health.
+    const grounded = simulateVitals(start, createVitals(), walkOff, world, 1 / 60, 3);
+    expect(grounded.state.position.x).toBeLessThan(16);
+    expect(grounded.vitals.health).toBe(config.player.maxHealth);
+    expect(isDead(grounded.vitals)).toBe(false);
+
+    // Long enough to cross the edge, fall out of the world, and take the
+    // void ticks that drain the full bar.
+    const result = simulateVitals(grounded.state, grounded.vitals, walkOff, world, 1 / 60, 10);
+
+    expect(result.state.position.y).toBeLessThan(config.player.voidY);
+    expect(result.vitals.inVoid).toBe(true);
+    expect(isDead(result.vitals)).toBe(true);
+    expect(result.vitals.health).toBe(0);
   });
 });

@@ -4,7 +4,7 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] The avatar has a transient health value of 20 HP (10 hearts × 2 HP) clamped to `[0, maxHealth]`; it is never written to the save file and the save schema and version are unchanged.
 - [ ] Health lives in a new pure, DOM-free and renderer-free vitals module beside `PlayerState`; `PlayerState` gains no fields and player movement physics does not change.

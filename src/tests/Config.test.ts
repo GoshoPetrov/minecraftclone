@@ -47,6 +47,14 @@ describe('config', () => {
     expect(Number.isInteger(player.safeFallDistance)).toBe(true);
     expect(player.safeFallDistance).toBeGreaterThanOrEqual(0);
     expect(player.fallDamagePerBlock).toBeGreaterThan(0);
+    // The void sits below the world floor (y = 0) and drains a positive,
+    // finite amount of health at a positive interval, so staying below it is
+    // always lethal.
+    expect(player.voidY).toBeLessThan(0);
+    expect(Number.isFinite(player.voidDamage)).toBe(true);
+    expect(player.voidDamage).toBeGreaterThan(0);
+    expect(Number.isFinite(player.voidDamageIntervalSeconds)).toBe(true);
+    expect(player.voidDamageIntervalSeconds).toBeGreaterThan(0);
     expect(player.moveSpeed).toBeGreaterThan(0);
     expect(player.gravity).toBeGreaterThan(0);
     expect(player.jumpVelocity).toBeGreaterThan(0);
