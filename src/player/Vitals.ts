@@ -11,9 +11,9 @@ import type { PlayerState } from './Player';
  * hearts mapping can be simulated and tested headlessly.
  *
  * The value carries the cross-frame void state (`inVoid`, `voidDamageTimer`)
- * alongside the fall-distance accumulator, so the pure function below owns
- * every damage rule — fall and void — and orchestration only supplies the
- * frame's states and reads the result.
+ * alongside the fall takeoff anchor, so the pure function below owns every
+ * damage rule — fall and void — and orchestration only supplies the frame's
+ * states and reads the result.
  */
 
 /** The avatar's transient condition. Never written to the save file. */
@@ -21,12 +21,13 @@ export interface VitalsState {
   /** Remaining hit points, always within `[0, maxHealth]`. */
   readonly health: number;
   /**
-   * Blocks accumulated while airborne since the avatar last left the ground.
-   * Only downward displacement counts, so the rise of a jump contributes
-   * nothing and a jump off a ledge is measured from its apex. It is reset to
-   * zero on landing and while grounded.
+   * Feet height (world Y) of the last grounded frame before the avatar became
+   * airborne, or `null` while grounded and no fall is in progress. The
+   * landing delta is `max(0, fallStartY - landingY)`, so the rise of a jump
+   * contributes nothing and a jump off a ledge is measured from the ground the
+   * avatar left. It is cleared on landing and while grounded.
    */
-  readonly fallDistance: number;
+  readonly fallStartY: number | null;
   /**
    * Whether the avatar's feet were below `player.voidY` after the last
    * update. Drives the immediate first void tick on entry and the timer reset
@@ -60,13 +61,13 @@ export function clampHealth(health: number, maxHealth: number): number {
 }
 
 /**
- * A fresh avatar at full health, above the void, with no fall accumulated and
+ * A fresh avatar at full health, above the void, with no fall in progress and
  * the void timer ready to tick immediately on entry.
  */
 export function createVitals(): VitalsState {
   return {
     health: config.player.maxHealth,
-    fallDistance: 0,
+    fallStartY: null,
     inVoid: false,
     voidDamageTimer: 0,
   };
@@ -80,14 +81,17 @@ export function isDead(vitals: VitalsState): boolean {
 /**
  * Advance the avatar's vitals by one frame.
  *
- * Fall distance accumulates only while the **previous** state was airborne
- * and only for downward displacement (`max(0, previous.y - next.y)`), so the
- * upward arc of a jump contributes nothing and a jump off a ledge is measured
- * from its apex. When a frame crosses from airborne to grounded, the final
- * slice of downward movement is added before the total is measured, damage is
- * applied as a whole number of hit points, and the accumulator resets. While
- * grounded the accumulator is held at zero, so a walk off a ledge starts from
- * zero and repeated short hops never add up.
+ * The fall is anchored at the takeoff height: the feet Y of the last grounded
+ * frame. The first airborne frame records `previous.position.y` as
+ * `fallStartY` (so an update that observes the avatar already airborne — a
+ * spawn or load in mid-air — is seeded too), and the airborne-to-grounded
+ * frame measures `max(0, fallStartY - next.position.y)` as one subtraction.
+ * The landing frame's own descent is included by construction, and the upward
+ * arc of a jump is discarded because the anchor is the ground the avatar
+ * left, not the top of its arc. Damage is applied as a whole number of hit
+ * points, then the anchor is cleared. While grounded the anchor stays `null`,
+ * so a walk off a ledge starts from the ledge and repeated short hops never
+ * add up.
  *
  * Void damage is independent of the fall rule: a plunge below `player.voidY`
  * never lands, so only the void applies. The frame the avatar first drops
@@ -108,17 +112,20 @@ export function updateVitals(
   next: PlayerState,
   dt: number,
 ): VitalsState {
-  const wasAirborne = !previous.grounded;
-  // The previous state decides whether this slice counts: once grounded the
-  // accumulator is cleared, and only airborne downward movement accrues.
-  let fallDistance = wasAirborne
-    ? vitals.fallDistance + Math.max(0, previous.position.y - next.position.y)
-    : 0;
-
   let health = vitals.health;
-  if (wasAirborne && next.grounded) {
-    health -= fallDamage(fallDistance);
-    fallDistance = 0;
+  // Anchor the fall at the takeoff height the first frame the avatar is
+  // airborne. Seeding whenever `next` is airborne keeps an already-airborne
+  // start (a spawn or load in mid-air) from becoming a free drop.
+  let fallStartY = vitals.fallStartY;
+  if (fallStartY === null && !next.grounded) {
+    fallStartY = previous.position.y;
+  }
+  if (next.grounded) {
+    if (!previous.grounded && fallStartY !== null) {
+      const delta = Math.max(0, fallStartY - next.position.y);
+      health -= fallDamage(delta);
+    }
+    fallStartY = null;
   }
 
   const belowVoid = next.position.y < config.player.voidY;
@@ -146,24 +153,24 @@ export function updateVitals(
 
   return {
     health: clampHealth(health, config.player.maxHealth),
-    fallDistance,
+    fallStartY,
     inVoid,
     voidDamageTimer,
   };
 }
 
 /**
- * Hit points lost by landing after `fallDistance` blocks of falling. The
- * distance is rounded up first, so any drop past the safe distance costs at
- * least one hit point, and the result is always a whole number.
+ * Hit points lost by landing after a `delta`-block drop. The delta is rounded
+ * up first, so any drop past the safe distance costs at least one hit point,
+ * and the result is always a whole number.
  */
-function fallDamage(fallDistance: number): number {
-  if (!Number.isFinite(fallDistance)) {
+function fallDamage(delta: number): number {
+  if (!Number.isFinite(delta)) {
     return 0;
   }
   const blocksBeyondSafe = Math.max(
     0,
-    Math.ceil(fallDistance) - config.player.safeFallDistance,
+    Math.ceil(delta) - config.player.safeFallDistance,
   );
   return blocksBeyondSafe * config.player.fallDamagePerBlock;
 }

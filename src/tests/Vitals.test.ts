@@ -36,7 +36,7 @@ describe('createVitals', () => {
 
     expect(vitals.health).toBe(20);
     expect(vitals.health).toBe(MAX_HEALTH);
-    expect(vitals.fallDistance).toBe(0);
+    expect(vitals.fallStartY).toBeNull();
     expect(vitals.inVoid).toBe(false);
     expect(vitals.voidDamageTimer).toBe(0);
     expect(isDead(vitals)).toBe(false);
@@ -121,27 +121,31 @@ describe('isDead', () => {
 });
 
 describe('updateVitals fall damage', () => {
-  /** Land after falling `distance` blocks with an optional carried total. */
-  function land(distance: number, carried = 0): VitalsState {
-    const previous = player(distance, false);
-    const next = player(0, true);
-    return updateVitals({ ...createVitals(), fallDistance: carried }, previous, next, 1 / 60);
+  /**
+   * Drop from `takeoffY` to `landingY`. The takeoff frame records the anchor
+   * (previous grounded, next airborne); the landing frame measures the net
+   * delta from that anchor.
+   */
+  function fall(takeoffY: number, landingY: number): VitalsState {
+    const airborne = updateVitals(
+      createVitals(),
+      player(takeoffY, true),
+      player(takeoffY, false),
+      1 / 60,
+    );
+    return updateVitals(airborne, player(takeoffY, false), player(landingY, true), 1 / 60);
   }
 
   it('is safe for a fall of exactly the configured safe distance', () => {
-    // Rebuild the fall so the distance is exactly the safe threshold.
-    const start = player(SAFE_FALL_DISTANCE, false);
-    const landed = player(0, true);
-
-    const result = updateVitals(createVitals(), start, landed, 1 / 60);
+    const result = fall(SAFE_FALL_DISTANCE, 0);
 
     expect(result.health).toBe(MAX_HEALTH);
-    expect(result.fallDistance).toBe(0);
+    expect(result.fallStartY).toBeNull();
   });
 
   it('costs at least one hit point for 3.1 and 4.0 block falls', () => {
-    const justPast = land(SAFE_FALL_DISTANCE + 0.1);
-    const wholeDrop = land(SAFE_FALL_DISTANCE + 1);
+    const justPast = fall(SAFE_FALL_DISTANCE + 0.1, 0);
+    const wholeDrop = fall(SAFE_FALL_DISTANCE + 1, 0);
 
     expect(MAX_HEALTH - justPast.health).toBeGreaterThanOrEqual(1);
     expect(MAX_HEALTH - wholeDrop.health).toBeGreaterThanOrEqual(1);
@@ -152,34 +156,30 @@ describe('updateVitals fall damage', () => {
 
   it('scales damage with the whole blocks past the safe distance', () => {
     // 9 blocks fallen -> ceil(9) - 3 = 6 blocks of damage.
-    const result = land(9);
+    const result = fall(9, 0);
 
     expect(result.health).toBe(MAX_HEALTH - 6 * FALL_DAMAGE_PER_BLOCK);
   });
 
-  it('accumulates only downward displacement while airborne', () => {
-    const rising = updateVitals(createVitals(), player(0, false), player(2, false), 1 / 60);
-    expect(rising.fallDistance).toBe(0);
+  it('anchors the fall at takeoff and ignores the upward arc', () => {
+    const takeoff = updateVitals(createVitals(), player(4, true), player(5.29, false), 1 / 60);
+    expect(takeoff.fallStartY).toBe(4);
 
-    const falling = updateVitals(
-      { ...createVitals(), fallDistance: 3 },
-      player(2, false),
-      player(1, false),
-      1 / 60,
-    );
-    expect(falling.fallDistance).toBe(4);
-    expect(falling.health).toBe(MAX_HEALTH);
+    // A higher apex never moves the anchor or costs health.
+    const rising = updateVitals(takeoff, player(5.29, false), player(6, false), 1 / 60);
+    expect(rising.fallStartY).toBe(4);
+    expect(rising.health).toBe(MAX_HEALTH);
   });
 
-  it('contributes nothing to fall distance while grounded', () => {
+  it('clears the anchor on any grounded frame', () => {
     const result = updateVitals(
-      { ...createVitals(), fallDistance: 5 },
+      { ...createVitals(), fallStartY: 5 },
       player(4, true),
       player(4, true),
       1 / 60,
     );
 
-    expect(result.fallDistance).toBe(0);
+    expect(result.fallStartY).toBeNull();
   });
 
   it('a plain jump rises and falls back without damage', () => {
@@ -190,50 +190,88 @@ describe('updateVitals fall damage', () => {
     vitals = updateVitals(vitals, player(5.29, false), player(4, true), 1 / 60);
 
     expect(vitals.health).toBe(MAX_HEALTH);
-    expect(vitals.fallDistance).toBe(0);
+    expect(vitals.fallStartY).toBeNull();
   });
 
-  it('measures a jump off a ledge from the apex, not the takeoff height', () => {
+  it('measures a jump off a ledge from takeoff, not the apex', () => {
     // Jump from a ledge at y = 10 with an apex of 11.29, then land at y = 4.
-    // The rise contributes nothing, so the drop is 7.29 blocks, not the 6
-    // blocks between the ledge and the ground.
+    // The anchor is the ledge, so the drop is the 6 blocks actually lost,
+    // not the 7.29 blocks below the apex.
     let vitals = createVitals();
     vitals = updateVitals(vitals, player(10, true), player(11.29, false), 1 / 60);
     vitals = updateVitals(vitals, player(11.29, false), player(4, true), 1 / 60);
 
-    expect(vitals.health).toBe(MAX_HEALTH - 5 * FALL_DAMAGE_PER_BLOCK);
-    expect(vitals.fallDistance).toBe(0);
+    expect(vitals.health).toBe(MAX_HEALTH - 3 * FALL_DAMAGE_PER_BLOCK);
+    expect(vitals.fallStartY).toBeNull();
   });
 
-  it('applies the final downward slice before measuring, then resets', () => {
-    // 2.9 carried + 0.2 on the landing frame crosses the threshold; measuring
-    // only the carried total (2.9) would be free.
-    const result = updateVitals(
-      { ...createVitals(), fallDistance: 2.9 },
-      player(4.2, false),
-      player(4, true),
+  it('costs the same to jump off a ledge as to walk off it', () => {
+    const walkedOff = fall(10, 4);
+    let jumped = createVitals();
+    jumped = updateVitals(jumped, player(10, true), player(11.29, false), 1 / 60);
+    jumped = updateVitals(jumped, player(11.29, false), player(4, true), 1 / 60);
+
+    expect(jumped.health).toBe(walkedOff.health);
+  });
+
+  it('includes the landing frame in the delta before resetting', () => {
+    // Take off at 3.2 and land at 0. The final frame from 0.2 to 0 is only
+    // 0.2 blocks, but the takeoff anchor makes the measured fall 3.2.
+    const airborne = updateVitals(
+      createVitals(),
+      player(3.2, true),
+      player(3.2, false),
       1 / 60,
     );
+    const result = updateVitals(airborne, player(0.2, false), player(0, true), 1 / 60);
 
     expect(result.health).toBe(MAX_HEALTH - FALL_DAMAGE_PER_BLOCK);
-    expect(result.fallDistance).toBe(0);
+    expect(result.fallStartY).toBeNull();
   });
 
-  it('resets the accumulator on landing so repeated short hops never add up', () => {
+  it('costs nothing when landing at or above the takeoff height', () => {
+    const level = fall(4, 4);
+    expect(level.health).toBe(MAX_HEALTH);
+    expect(level.fallStartY).toBeNull();
+
+    const higher = fall(4, 6);
+    expect(higher.health).toBe(MAX_HEALTH);
+    expect(higher.fallStartY).toBeNull();
+  });
+
+  it('seeds an already-airborne start so a mid-air spawn is measured', () => {
+    // An update that observes the avatar already airborne records previous.y.
+    const airborne = updateVitals(createVitals(), player(15, false), player(14, false), 1 / 60);
+    expect(airborne.fallStartY).toBe(15);
+
+    // 11 blocks from the seeded anchor -> ceil(11) - 3 = 8 damage.
+    const landed = updateVitals(airborne, player(14, false), player(4, true), 1 / 60);
+    expect(landed.health).toBe(MAX_HEALTH - 8 * FALL_DAMAGE_PER_BLOCK);
+    expect(landed.fallStartY).toBeNull();
+  });
+
+  it('clears the fall when a landing has no recorded start', () => {
+    const landed = updateVitals(createVitals(), player(15, false), player(4, true), 1 / 60);
+
+    expect(landed.health).toBe(MAX_HEALTH);
+    expect(landed.fallStartY).toBeNull();
+  });
+
+  it('resets on landing so repeated short hops never add up', () => {
     let vitals = createVitals();
     for (let hop = 0; hop < 5; hop += 1) {
       // Each hop is two blocks up and two back down, then lands.
       vitals = updateVitals(vitals, player(4, true), player(6, false), 1 / 60);
       vitals = updateVitals(vitals, player(6, false), player(6, false), 1 / 60);
       vitals = updateVitals(vitals, player(6, false), player(4, true), 1 / 60);
-      expect(vitals.fallDistance).toBe(0);
+      expect(vitals.fallStartY).toBeNull();
     }
 
     expect(vitals.health).toBe(MAX_HEALTH);
   });
 
   it('clamps lethal damage at zero and reports death', () => {
-    const result = land(MAX_HEALTH + SAFE_FALL_DISTANCE + 5);
+    const result = fall(MAX_HEALTH + SAFE_FALL_DISTANCE + 5, 0);
 
     expect(result.health).toBe(0);
     expect(isDead(result)).toBe(true);
@@ -241,16 +279,21 @@ describe('updateVitals fall damage', () => {
   });
 
   it('is unaffected by crouching, sprinting, or the airborne label', () => {
-    const plain = land(8);
+    const plain = fall(8, 0);
     const posed = updateVitals(
-      createVitals(),
+      updateVitals(
+        createVitals(),
+        { ...player(8, true), crouching: true, movement: 'sprinting' },
+        { ...player(8, false), crouching: true, movement: 'sprinting' },
+        1 / 60,
+      ),
       { ...player(8, false), crouching: true, movement: 'sprinting' },
       { ...player(0, true), crouching: true, movement: 'sneaking' },
       1 / 60,
     );
 
     expect(posed.health).toBe(plain.health);
-    expect(posed.fallDistance).toBe(plain.fallDistance);
+    expect(posed.fallStartY).toBe(plain.fallStartY);
   });
 });
 
@@ -377,7 +420,7 @@ describe('updateVitals void damage', () => {
       );
     }
 
-    expect(vitals.fallDistance).toBeGreaterThan(0);
+    expect(vitals.fallStartY).not.toBeNull();
     expect(vitals.health).toBe(MAX_HEALTH - 2 * VOID_DAMAGE);
     expect(vitals.inVoid).toBe(true);
   });

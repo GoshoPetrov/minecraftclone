@@ -56,7 +56,7 @@ avatar at full health at spawn, exactly like the position is not persisted today
 3. As a player, I want the damage to grow with the distance fallen, so that a slightly-too-high drop stings and a long drop is genuinely dangerous.
 4. As a player, I want a fall from a lethal height to kill me, so that the world has real stakes.
 5. As a player, I want a normal jump on flat ground to never hurt me, so that moving around is not accidentally self-damaging.
-6. As a player, I want the upward arc of a jump not to count toward fall distance, so that jumping off a ledge only measures the drop below the apex.
+6. As a player, I want the fall to be measured from the ground I left, so that the upward arc of a jump does not inflate the drop and jumping off a ledge costs the same as walking off it.
 7. As a player, I want fall distance to reset when I land, so that a series of short hops does not add up into a phantom long fall.
 8. As a player, I want landing on a block I placed mid-fall to save me, so that building under myself is a valid escape.
 9. As a player, I want crouching, sprinting, or being airborne to not change how fall damage is calculated, so that the rule is predictable.
@@ -117,7 +117,7 @@ avatar at full health at spawn, exactly like the position is not persisted today
 ### Verification
 
 51. As a tester, I want the fall-damage threshold and formula pinned by unit tests, so that the safe distance and per-block cost cannot drift silently.
-52. As a tester, I want fall-distance accumulation, reset, and jump behaviour pinned, so that the "rising does not count" rule is enforced.
+52. As a tester, I want takeoff anchoring, reset, and jump behaviour pinned, so that the "measured from the ground I left" rule is enforced.
 53. As a tester, I want the void cadence and immediate first tick pinned, so that the void's lethality and timing are exact.
 54. As a tester, I want the health floor and the dead condition pinned, so that death always triggers at zero and never below.
 55. As a tester, I want an end-to-end headless flow that drops the avatar and confirms death and respawn, so that the real physics and vitals work together.
@@ -128,7 +128,7 @@ avatar at full health at spawn, exactly like the position is not persisted today
 
 ### Modules modified
 
-- **New pure vitals module** — owns the vitals value, the fall-distance accumulator, the
+- **New pure vitals module** — owns the vitals value, the fall takeoff anchor, the
   void timer, the damage rules, the dead condition, and the hearts mapping. DOM-free
   and renderer-free.
 - **Central tuning configuration** — gains the health, fall, and void constants. No
@@ -158,15 +158,15 @@ movement/collision function and `PlayerState` gains no fields.
 
 Health is **not** added to `PlayerState`. It lives in its own transient value owned by
 orchestration, beside the player state. This keeps movement physics single-purpose and
-keeps cross-frame damage state (fall accumulation, void cadence) out of the pure step
+keeps cross-frame damage state (the takeoff anchor, void cadence) out of the pure step
 function. The vitals shape (decision-rich, from the grilling session):
 
 ```ts
 interface VitalsState {
-  readonly health: number;           // clamped to [0, maxHealth]
-  readonly fallDistance: number;     // blocks fallen since leaving the ground
-  readonly inVoid: boolean;          // whether the avatar was below the threshold last update
-  readonly voidDamageTimer: number;  // seconds until the next void damage tick
+  readonly health: number;            // clamped to [0, maxHealth]
+  readonly fallStartY: number | null; // feet Y on the last grounded frame; null when grounded
+  readonly inVoid: boolean;           // below the threshold on the last update
+  readonly voidDamageTimer: number;   // seconds until the next void damage tick
 }
 
 createVitals(): VitalsState
@@ -180,15 +180,20 @@ of `full` / `half` / `empty` per heart, so the presenter only renders.
 ### Damage rules
 
 - **Maximum health:** 20 (10 hearts × 2 HP).
-- **Fall distance:** accumulate only **downward** displacement while the avatar is
-  airborne, i.e. add `max(0, previous.y − next.y)` when the previous state was not
-  grounded. Upward motion contributes nothing. Distance resets to zero on landing
-  (and while grounded, so a walk off a ledge starts from zero).
+- **Fall measurement:** anchor the fall at the feet Y of the last grounded frame.
+  The first frame the avatar is airborne stores `fallStartY = previous.position.y`,
+  which covers both the ordinary grounded-to-airborne transition and an update that
+  observes the avatar already airborne (a spawn or load in mid-air). The upward arc of
+  a jump contributes nothing because the anchor is the ground the avatar left, not the
+  apex. While grounded (and on landing) `fallStartY` is `null`, so a walk off a ledge
+  starts from the ledge and repeated short hops never add up.
 - **Fall damage on landing:** when the transition is airborne → grounded, apply
-  `max(0, ceil(fallDistance) − safeFallDistance) × fallDamagePerBlock`. `ceil` is
+  `max(0, ceil(max(0, fallStartY − next.position.y)) − safeFallDistance) ×
+  fallDamagePerBlock`. The landing frame's own descent is included by construction
+  because the anchor is the takeoff height, not the previous frame's height. `ceil` is
   deliberate: any drop past exactly 3 blocks costs at least 1 HP (a 3.9-block fall is
-  not free). Landing still applies the final slice of downward movement before the
-  total is measured, then resets the accumulator.
+  not free). Landing at or above the takeoff height clamps to zero damage, and
+  `fallStartY` is cleared afterwards.
 - **Void threshold:** `next.position.y < voidY`. This covers both the horizontal edge
   of the world and any future bottomless world, because out-of-bounds reads are air at
   every height.
@@ -266,7 +271,7 @@ simply does nothing that frame.
 
 ### Persistence
 
-- Health, the dead flag, fall distance, and the void timer are **transient** and never
+- Health, the dead flag, the fall anchor, and the void timer are **transient** and never
   persisted. The save schema, its version, validation, and reconstruction are
   unchanged. A reload always starts at full health at spawn, matching the fact that
   player position is not persisted either.
@@ -295,10 +300,12 @@ reuses the established acceptance seam rather than inventing one.
 
 - **Vitals module** (new test, node environment):
   - a fall of exactly 3.0 blocks is safe, and 3.1 and 4.0 blocks each cost at least 1 HP;
-  - damage scales with distance (`ceil(distance) − 3`);
-  - fall distance accumulates only while airborne and only for downward movement;
+  - damage scales with distance (`ceil(delta) − 3`);
+  - a jump off a ledge is measured from the takeoff height, not the apex;
+  - a jump off a ledge and a walk off it cost the same;
+  - `fallStartY` is seeded by the first airborne frame and cleared on landing;
   - a plain jump (rise then land) is safe;
-  - the accumulator resets on landing;
+  - landing at or above the takeoff height is free and resets the fall;
   - the void ticks immediately on entry and then at the configured cadence;
   - leaving the void resets the timer;
   - health is clamped to `[0, maxHealth]`;
@@ -357,19 +364,21 @@ while dead does not break or place a block.
 
 - **Why vitals are separate from `PlayerState`.** `PlayerState` is documented as the
   movement/collision state that `step` reads and produces, and `step` is deliberately
-  pure and single-purpose. Fall damage needs cross-frame state (accumulated distance)
-  and a landing transition; putting it in `step` would couple collision to health.
+  pure and single-purpose. Fall damage needs cross-frame state (a takeoff anchor and a
+  landing transition); putting it in `step` would couple collision to health.
   A separate transient value beside the player state keeps `step` unchanged and the
   damage rules fully testable with plain previous/next states.
 - **Why `ceil`, not `floor`.** With `floor`, a 3.9-block fall would be free and only a
   full 4.0-block drop would hurt, which is inconsistent with "3 blocks is safe". `ceil`
   makes any drop past exactly three blocks cost at least one HP and matches the
   reference feel.
-- **Why fall distance accumulates downward motion only.** `step` applies gravity and
-  resolves the ground each slice, so the frame-to-frame downward delta is exactly the
-  distance fallen. Summing it only while airborne, and only when negative, means the
-  rise of a jump never counts and a jump off a ledge is measured from the apex — which
-  is what makes an ordinary jump safe and a jump off a three-block ledge cost a heart.
+- **Why the fall is anchored at takeoff rather than the apex.** `step` applies gravity
+  and resolves the ground each slice, so the height the avatar actually lost is the
+  difference between the ground it left and the ground it hit. Anchoring at the last
+  grounded frame makes a jump off a ledge cost the same as a walk off it — the
+  property the apex rule violated — while a plain jump on flat ground still nets to
+  zero. The first airborne frame records the anchor, so the rise of a jump can never
+  inflate the drop.
 - **Why the void threshold is below the world.** Bedrock at the world floor is
   unbreakable, so the only practical void is walking off the horizontal edge, where the
   world is air at every height. A threshold a few blocks below the floor lets the

@@ -523,6 +523,37 @@ describe('acceptance: fall damage', () => {
     expect(result.vitals.health).toBe(config.player.maxHealth);
   });
 
+  it('a real jump off a ledge is measured from the takeoff height', () => {
+    const world = flatWorld();
+    // A raised ledge whose top solid layer is y = 9, so the feet rest at
+    // y = 10 — six blocks above the flat ground at y = 4.
+    for (let x = 6; x <= 9; x += 1) {
+      for (let z = 6; z <= 9; z += 1) {
+        world.setBlock(x, 9, z, BlockIds.basic);
+      }
+    }
+    const start = createPlayerState({ x: 8.5, y: 10, z: 8.5 });
+    const jumpOff: PlayerIntent = {
+      move: { x: 1, z: 0 },
+      jump: true,
+      sprint: false,
+      crouch: false,
+    };
+
+    const jumped = simulateVitals(start, createVitals(), jumpOff, world, 1 / 60, 0.6);
+    // Stop pushing sideways once clear of the ledge so the avatar lands on the
+    // flat ground instead of walking off the far edge of the world.
+    const result = simulateVitals(jumped.state, jumped.vitals, idleIntent(), world, 1 / 60, 3);
+
+    expect(result.state.grounded).toBe(true);
+    expect(result.state.position.y).toBeCloseTo(4, 3);
+    // The anchor is the ledge at y = 10, so the six-block drop costs three
+    // hit points, not the five the apex rule would have charged.
+    const expected = (6 - config.player.safeFallDistance) * config.player.fallDamagePerBlock;
+    expect(result.vitals.health).toBe(config.player.maxHealth - expected);
+    expect(result.vitals.fallStartY).toBeNull();
+  });
+
   it('landing on a block placed mid-fall prevents the lethal full-fall damage', () => {
     const world = flatWorld();
     // A platform in the fall path, four blocks up. Without it the same drop
@@ -559,14 +590,14 @@ describe('acceptance: death and respawn', () => {
     expect(isDead(died.vitals)).toBe(true);
 
     // Respawn: a fresh state at the spawn search's feet position, plus fresh
-    // vitals. Velocity and the fall accumulator are back to zero.
+    // vitals. Velocity and the fall anchor are back to zero.
     const respawned = createPlayerState(findSpawn(world));
     const vitals = createVitals();
     expect(respawned.velocity).toEqual({ x: 0, y: 0, z: 0 });
     expect(respawned.grounded).toBe(false);
     expect(isDead(vitals)).toBe(false);
     expect(vitals.health).toBe(config.player.maxHealth);
-    expect(vitals.fallDistance).toBe(0);
+    expect(vitals.fallStartY).toBeNull();
 
     // The spawn sits on the surface, so the avatar settles immediately and
     // the negligible drop still costs nothing.
@@ -601,7 +632,7 @@ describe('acceptance: death and respawn', () => {
     const vitals = createVitals();
     expect(isDead(vitals)).toBe(false);
     expect(vitals.health).toBe(config.player.maxHealth);
-    expect(vitals.fallDistance).toBe(0);
+    expect(vitals.fallStartY).toBeNull();
     expect(vitals.inVoid).toBe(false);
 
     const settled = simulateVitals(respawned, vitals, idleIntent(), world, 1 / 60, 1);

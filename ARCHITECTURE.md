@@ -135,7 +135,7 @@ consistent by the previous one; render happens only after all stages:
  1. consumeInput       poll keys, drain mouse delta + queued presses
  2. applyLook          yaw/pitch from mouse delta (only while pointer-locked)
  3. stepPhysics        pure step() → next PlayerState
- 4. updateVitals       fall accumulator + landing damage + void drain
+ 4. updateVitals       fall anchor + landing damage + void drain
  5. updateTargeting    raycast from eye → renderer.setTarget()
  6. applyActions       queued break/place via BlockInteractor → persistence.markDirty()
  7. flushDirtyMeshes   budgeted chunk rebuild
@@ -197,10 +197,10 @@ condition as a plain value beside the movement state:
 
 ```ts
 interface VitalsState {
-  health: number            // hit points, always within [0, maxHealth]
-  fallDistance: number      // airborne downward blocks since last grounded
-  inVoid: boolean           // feet were below player.voidY after last update
-  voidDamageTimer: number   // seconds until the next void tick (while inVoid)
+  health: number                // hit points, always within [0, maxHealth]
+  fallStartY: number | null     // feet Y on the last grounded frame; null when grounded
+  inVoid: boolean               // feet were below player.voidY after last update
+  voidDamageTimer: number       // seconds until the next void tick (while inVoid)
 }
 
 createVitals(): VitalsState                              // full, clear timers
@@ -217,13 +217,14 @@ clampHealth(health, maxHealth): number
   and returns a new state with health clamped to `[0, maxHealth]`; a
   non-finite input collapses to a bound. It can be simulated and tested with
   no DOM, renderer, or real world.
-- **Fall rule.** `fallDistance` accumulates only while the *previous* state
-  was airborne and only for downward displacement (`max(0, previous.y −
-  next.y)`), so a jump's rise costs nothing and a jump off a ledge is measured
-  from its apex. On the airborne→grounded frame the final slice is added,
-  damage is `max(0, ceil(fallDistance) − safeFallDistance) ×
-  fallDamagePerBlock` whole hit points, and the accumulator resets. While
-  grounded it is held at zero, so short hops never add up.
+- **Fall rule.** The fall is anchored at the takeoff height: the first frame
+  the avatar is airborne stores `fallStartY = previous.position.y` (seeding an
+  already-airborne start too), so a jump's rise never inflates the drop. On the
+  airborne→grounded frame the delta is `max(0, fallStartY − next.y)`, damage is
+  `max(0, ceil(delta) − safeFallDistance) × fallDamagePerBlock` whole hit
+  points, and `fallStartY` clears. While grounded it stays `null`, so a walk
+  off a ledge starts from the ledge and short hops never add up. Landing at or
+  above the takeoff height clamps to zero damage.
 - **Void rule.** Below `player.voidY`, the crossing frame takes an immediate
   `voidDamage` tick, then a carried timer is decremented by `dt` and ticks
   again every `voidDamageIntervalSeconds` (a long frame may owe several
