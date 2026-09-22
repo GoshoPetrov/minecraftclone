@@ -15,6 +15,7 @@ import {
 } from '../player/Player';
 import { PlayerController } from '../player/PlayerController';
 import { step } from '../player/PlayerPhysics';
+import { createVitals, isDead, updateVitals, type VitalsState } from '../player/Vitals';
 import { findSpawn } from '../player/Spawn';
 import { BlockIds } from '../world/Block';
 import { createDefaultBlockRegistry } from '../world/BlockRegistry';
@@ -463,5 +464,82 @@ describe('acceptance: rejected interactions do nothing', () => {
     expect(interactor.breakBlock(null, RANGE)).toBe(false);
     expect(interactor.placeBlock(null, playerBounds, BASIC, RANGE)).toBe(false);
     expect(world.modifications()).toEqual([]);
+  });
+});
+
+describe('acceptance: fall damage', () => {
+  /**
+   * Advance the real `step` and the real `updateVitals` together, passing the
+   * exact previous and next states the game wires together each frame.
+   */
+  function simulateVitals(
+    state: PlayerState,
+    vitals: VitalsState,
+    intent: PlayerIntent,
+    world: World,
+    dt: number,
+    seconds: number,
+  ): { readonly state: PlayerState; readonly vitals: VitalsState } {
+    let nextState = state;
+    let nextVitals = vitals;
+    const frames = Math.max(1, Math.round(seconds / dt));
+    for (let i = 0; i < frames; i += 1) {
+      const previous = nextState;
+      nextState = step(previous, intent, world, dt);
+      nextVitals = updateVitals(nextVitals, previous, nextState, dt);
+    }
+    return { state: nextState, vitals: nextVitals };
+  }
+
+  it('a controlled drop from a lethal height ends dead', () => {
+    const world = flatWorld();
+    const start = createPlayerState({ x: 8.5, y: 30, z: 8.5 });
+
+    const result = simulateVitals(start, createVitals(), idleIntent(), world, 1 / 60, 6);
+
+    expect(result.state.grounded).toBe(true);
+    expect(result.state.position.y).toBeCloseTo(4, 3);
+    expect(isDead(result.vitals)).toBe(true);
+  });
+
+  it('a plain jump on flat ground never deals damage', () => {
+    const world = flatWorld();
+    const grounded = simulate(
+      createPlayerState({ x: 8.5, y: 10, z: 8.5 }),
+      idleIntent(),
+      world,
+      1 / 60,
+      3,
+    );
+    expect(grounded.grounded).toBe(true);
+
+    const jump: PlayerIntent = { move: { x: 0, z: 0 }, jump: true, sprint: false, crouch: false };
+    const previous = grounded;
+    const rising = step(previous, jump, world, 1 / 60);
+    const afterJump = updateVitals(createVitals(), previous, rising, 1 / 60);
+    const result = simulateVitals(rising, afterJump, idleIntent(), world, 1 / 60, 4);
+
+    expect(result.state.grounded).toBe(true);
+    expect(result.vitals.health).toBe(config.player.maxHealth);
+  });
+
+  it('landing on a block placed mid-fall prevents the lethal full-fall damage', () => {
+    const world = flatWorld();
+    // A platform in the fall path, four blocks up. Without it the same drop
+    // is lethal; landing on it shortens the fall enough to survive.
+    for (let x = 7; x <= 9; x += 1) {
+      for (let z = 7; z <= 9; z += 1) {
+        world.setBlock(x, 15, z, BlockIds.basic);
+      }
+    }
+    const start = createPlayerState({ x: 8.5, y: 30, z: 8.5 });
+
+    const result = simulateVitals(start, createVitals(), idleIntent(), world, 1 / 60, 6);
+
+    expect(result.state.grounded).toBe(true);
+    expect(result.state.position.y).toBeCloseTo(16, 3);
+    expect(isDead(result.vitals)).toBe(false);
+    // It still costs health: the fall is beyond the safe distance.
+    expect(result.vitals.health).toBeLessThan(config.player.maxHealth);
   });
 });

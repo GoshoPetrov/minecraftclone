@@ -42,6 +42,11 @@ describe('config', () => {
     expect(Number.isInteger(player.maxHealth)).toBe(true);
     expect(player.maxHealth).toBeGreaterThan(0);
     expect(player.maxHealth % 2).toBe(0);
+    // A fall of exactly the safe distance is free, and each whole block past
+    // it costs a positive, whole number of hit points.
+    expect(Number.isInteger(player.safeFallDistance)).toBe(true);
+    expect(player.safeFallDistance).toBeGreaterThanOrEqual(0);
+    expect(player.fallDamagePerBlock).toBeGreaterThan(0);
     expect(player.moveSpeed).toBeGreaterThan(0);
     expect(player.gravity).toBeGreaterThan(0);
     expect(player.jumpVelocity).toBeGreaterThan(0);

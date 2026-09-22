@@ -15,7 +15,7 @@ import {
   type Vec3,
 } from '../player/Player';
 import { step } from '../player/PlayerPhysics';
-import { createVitals, type VitalsState } from '../player/Vitals';
+import { createVitals, updateVitals, type VitalsState } from '../player/Vitals';
 import { findSpawn } from '../player/Spawn';
 import { raycastBlock, type BlockHit } from '../interaction/BlockRaycaster';
 import { BlockInteractor } from '../interaction/BlockInteractor';
@@ -193,17 +193,19 @@ export class Game {
    *   1. consume input        (polled state and queued actions)
    *   2. apply look           (yaw/pitch from accumulated mouse delta)
    *   3. step physics         (movement, gravity, collision)
-   *   4. update targeting     (raycast + highlight)
-   *   5. apply actions        (queued break/place)
-   *   6. flush dirty meshes   (budgeted geometry rebuild)
-   *   7. follow camera        (position + orientation for the next render)
-   *   8. update health HUD    (render the frame's health as hearts)
-   *   9. update debug readout (read-only diagnostic text)
+   *   4. update vitals        (fall accumulation + landing damage)
+   *   5. update targeting     (raycast + highlight)
+   *   6. apply actions        (queued break/place)
+   *   7. flush dirty meshes   (budgeted geometry rebuild)
+   *   8. follow camera        (position + orientation for the next render)
+   *   9. update health HUD    (render the frame's health as hearts)
+   *  10. update debug readout (read-only diagnostic text)
    */
   update(deltaSeconds: number): void {
     this.consumeInput();
     this.applyLook();
-    this.stepPhysics(deltaSeconds);
+    const previous = this.stepPhysics(deltaSeconds);
+    this.advanceVitals(previous, deltaSeconds);
     this.updateTargeting();
     this.applyActions();
     this.flushDirtyMeshes();
@@ -259,9 +261,22 @@ export class Game {
    * stands still rather than reacting to a cursor that is back on screen.
    * Physics keeps running so gravity and collision stay consistent.
    */
-  private stepPhysics(deltaSeconds: number): void {
+  private stepPhysics(deltaSeconds: number): PlayerState {
     const intent = this.pointerLocked ? this.controller.intent(this.movementInput) : idleIntent();
-    this.playerState = step(this.playerState, intent, this.world, deltaSeconds);
+    const previous = this.playerState;
+    this.playerState = step(previous, intent, this.world, deltaSeconds);
+    return previous;
+  }
+
+  /**
+   * Advance the transient vitals from the exact grounded transition and
+   * position physics just produced. Running immediately after the physics
+   * stage means fall accumulation and landing damage observe the frame's real
+   * end state before targeting, actions, or the HUD touch it. All damage
+   * arithmetic lives in the pure vitals module.
+   */
+  private advanceVitals(previous: PlayerState, deltaSeconds: number): void {
+    this.vitals = updateVitals(this.vitals, previous, this.playerState, deltaSeconds);
   }
 
   /**

@@ -59,6 +59,13 @@ export const config = {
      * each, so it must be a positive even number.
      */
     maxHealth: 20,
+    /**
+     * Whole blocks a fall can cover without dealing damage. A fall of exactly
+     * this distance is safe; any drop past it costs at least one hit point.
+     */
+    safeFallDistance: 3,
+    /** Hit points lost per whole block fallen beyond `safeFallDistance`. */
+    fallDamagePerBlock: 1,
     /** Collision box width, used for both the x and z axes, in blocks. */
     width: 0.6,
     /** Collision box height, from the feet upwards, in blocks. */
